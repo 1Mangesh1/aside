@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>aside</title>
+<style>
+  :root { --bg:#f7f6f3; --panel:#fff; --ink:#1d1d1f; --quiet:#66666c; --line:#e3e1dc; --accent:#c4501b; --ok:#2f7d4f; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151515; --panel:#1e1e1e; --ink:#ecebe8; --quiet:#a3a3a8; --line:#2f2f2f; --accent:#e0703e; --ok:#5fb37f; --bad:#ef6b62; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 20px; margin: 0; } h2 { font-size: 17px; margin: 0 0 8px; } .quiet { color: var(--quiet); font-size: 14px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-top: 14px; }
+  label { display:block; font-size:14px; color:var(--quiet); margin: 10px 0 4px; }
+  select, input { width: 100%; font: inherit; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); }
+  button { font: inherit; min-height: 42px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; } button:disabled { opacity: .45; cursor: default; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; margin-top: 12px; align-items: center; } .row input { flex: 1; min-width: 200px; }
+  .grid { display:grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; } @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+  fieldset { border: 0; padding: 0; margin: 12px 0 0; } legend { padding: 0; }
+  fieldset label { display:inline-flex; gap:6px; align-items:center; color: var(--ink); margin-right: 16px; } fieldset input { width:auto; }
+  .live { display:grid; grid-template-columns: 3fr 2fr; gap: 16px; margin-top: 12px; } @media (max-width: 760px) { .live { grid-template-columns: 1fr; } }
+  .transcript { max-height: 460px; overflow: auto; font-size: 15px; } .transcript p { margin: 0 0 6px; } .who { color: var(--quiet); font-size: 13px; margin-right: 6px; }
+  .answer { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 10px; white-space: pre-wrap; } .answer .asked { display:block; font-weight: 600; }
+  .state { font-weight: 600; } .state.listen { color: var(--ok); } .state.busy { color: var(--accent); }
+  .meter { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 8px; } .meter > div { height: 100%; width: 0; background: var(--ok); }
+  pre.md { white-space: pre-wrap; font: 14px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 520px; overflow: auto; }
+  .hidden { display: none !important; } .err { color: var(--bad); margin-top: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>aside</h1>
+  <div class="quiet">The call is transcribed on this Mac. Text goes to Claude only when you ask a question, and for the notes.</div>
+
+  <section class="panel" id="setup">
+    <div class="grid">
+      <div style="grid-column: span 2"><label for="title">Meeting</label><input id="title" placeholder="Sprint planning"></div>
+      <div><label for="backend">Claude</label><select id="backend"><option value="auto">Auto (API, then Claude Code)</option><option value="api">API credit</option><option value="cli">Claude Code (subscription)</option></select></div>
+      <div style="grid-column: span 3"><label for="app">Record call audio from</label>
+        <select id="app">
+          <option value="microsoft teams">Microsoft Teams</option><option value="zoom.us">Zoom</option>
+          <option value="arc">Arc (Google Meet)</option><option value="google chrome">Google Chrome (Google Meet)</option>
+          <option value="safari">Safari</option><option value="">All apps (includes music and notifications)</option>
+        </select></div>
+    </div>
+    <fieldset><legend class="quiet">Can text from this call go to Claude?</legend>
+      <label><input type="radio" name="claude" value="allowed" autocomplete="off"> Claude allowed</label>
+      <label><input type="radio" name="claude" value="local" autocomplete="off"> Local only (use it for any call with patient data)</label>
+    </fieldset>
+    <fieldset><label><input type="checkbox" id="keepAudio"> Keep the audio after the notes</label></fieldset>
+    <div class="row"><button class="primary" id="start" disabled>Start recording</button><span class="quiet" id="startHint"></span></div>
+    <div class="quiet" style="margin-top:8px">Tell the other people on the call that you are recording. Headphones give the cleanest "Me" track.</div>
+  </section>
+
+  <section class="panel hidden" id="live">
+    <div class="row" style="margin-top:0"><span class="state listen" id="clock"></span><span class="quiet" id="liveInfo"></span><button id="stop">Stop and write notes</button></div>
+    <div class="live">
+      <div><h2>Transcript</h2><div class="transcript" id="transcript"></div></div>
+      <div id="companion"><h2>Ask Claude</h2>
+        <div class="row" style="margin-top:0"><input id="question" placeholder="What did they say about the deadline?"><button class="primary" id="ask">Ask</button></div>
+        <div id="answers"></div><div class="quiet" id="cost" style="margin-top:8px"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Meetings</h2>
+    <div id="unfinished"></div>
+    <div id="meetingList"><span class="quiet">No meetings yet.</span></div>
+    <div class="row"><input id="crossQ" placeholder="Ask about the ticked meetings"><button id="crossAsk">Ask</button></div>
+    <div class="answer hidden" id="crossAnswer"></div>
+    <pre class="md hidden" id="meetingView"></pre>
+  </section>
+
+  <section class="panel">
+    <div class="quiet">Speech model (Parakeet, runs on this Mac)</div>
+    <div id="modelText" style="margin-top:4px">Checking...</div>
+    <div class="meter hidden" id="dlMeter"><div id="dlBar"></div></div>
+    <div class="row"><button id="download" class="hidden">Download</button><button id="delete" class="hidden">Delete to free space</button></div>
+    <div class="quiet" id="claudeText" style="margin-top:8px"></div>
+  </section>
+  <div class="err" id="error"></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let S = null, pollTimer = null, clockTimer = null, deleteArmed = false;
+const WAITING = '<span class="quiet">Waiting for the first 15 seconds...</span>';
+
+async function api(path, data) {
+  const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data || {}) });
+  const out = await res.json();
+  if (!res.ok) throw new Error(out.error || res.statusText);
+  return out;
+}
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const clockText = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+function showError(e) { $('error').textContent = e.message || String(e); }
+function showMarkdown(text) { $('meetingView').textContent = text; $('meetingView').classList.remove('hidden'); }
+
+// Status: the speech model, Claude, the recorder and the running meeting. Polls while the model is changing.
+const gb = (b) => (b / 1e9).toFixed(1);
+async function poll() {
+  clearTimeout(pollTimer);
+  S = await (await fetch('/api/status')).json();
+  const m = S.model, size = gb(m.expectedBytes);
+  $('start').disabled = !S.recorder || !S.asrReady;
+  $('startHint').textContent = !S.recorder ? 'Build the recorder first: npm run build:capture' : !S.asrReady ? 'Waiting for the speech model.' : '';
+  $('dlMeter').classList.toggle('hidden', !m.downloading);
+  $('download').classList.toggle('hidden', m.downloaded || m.downloading);
+  $('delete').classList.toggle('hidden', !(m.downloaded || m.bytes > 0) || m.downloading);
+  $('download').textContent = m.bytes > 0 ? `Resume download (${size} GB)` : `Download (${size} GB)`;
+  if (m.downloading && !m.downloaded) { $('modelText').textContent = `Downloading: ${gb(m.bytes)} of ${size} GB`; $('dlBar').style.width = Math.min(100, 100 * m.bytes / m.expectedBytes) + '%'; }
+  else if (m.downloading) $('modelText').textContent = 'Downloaded. Loading into memory...';
+  else if (S.asrReady) $('modelText').textContent = `Ready. Using ${gb(m.bytes)} GB of disk. Delete it when you are done.`;
+  else if (m.bytes > 0) $('modelText').textContent = `Partly downloaded: ${gb(m.bytes)} of ${size} GB.`;
+  else $('modelText').textContent = `Not on this Mac. Download it to use aside (${size} GB, once).`;
+  const c = S.claude;
+  $('claudeText').textContent = `Claude: API ${c.api ? 'available' : 'not available (no key or credit used up)'}; Claude Code ${c.cliIsolated ? 'isolated' : 'shares your CLAUDE.md (run the one-time login in the README to isolate it)'}.`;
+  showLive(S.meeting);
+  if (m.downloading || (m.downloaded && !S.asrReady)) pollTimer = setTimeout(() => poll().catch(showError), 2000);
+}
+function showLive(meeting) {
+  $('setup').classList.toggle('hidden', !!meeting);
+  $('live').classList.toggle('hidden', !meeting);
+  clearInterval(clockTimer);
+  if (!meeting) return;
+  $('liveInfo').textContent = `${meeting.title}. ${meeting.claude === 'local' ? 'Local only: nothing goes to Claude.' : 'Claude allowed.'}`;
+  $('companion').classList.toggle('hidden', meeting.claude === 'local');
+  clockTimer = setInterval(() => { $('clock').textContent = 'Recording ' + clockText((Date.now() - meeting.startedAt) / 1000); }, 500);
+}
+
+// Live events from the server: the transcript so far and the companion's answers as they arrive.
+new EventSource('/api/events').onmessage = (e) => {
+  const ev = JSON.parse(e.data);
+  if (ev.type === 'lines' && ev.id === S?.meeting?.id) {
+    $('transcript').innerHTML = ev.lines.map((l) => `<p><span class="who">${clockText(l.start)} ${esc(l.speaker)}</span>${esc(l.text)}</p>`).join('') || WAITING;
+    $('transcript').scrollTop = $('transcript').scrollHeight;
+  }
+  if (ev.type === 'answer-start') $('answers').insertAdjacentHTML('afterbegin', `<div class="answer"><span class="asked">${esc(ev.question)}</span><span id="a-${ev.id}"></span></div>`);
+  if (ev.type === 'answer-delta') { const el = $('a-' + ev.id); if (el) el.textContent += ev.text; }
+  if (ev.type === 'answer-end') $('cost').textContent = `Claude cost of this meeting: $${ev.cost.toFixed(3)}`;
+  if (ev.type === 'state') poll().catch(showError);
+  if (ev.type === 'error') showError(new Error(ev.message));
+};
+
+$('start').onclick = async () => {
+  $('error').textContent = '';
+  const claude = document.querySelector('input[name="claude"]:checked')?.value;
+  if (!claude) return showError(new Error('Choose "Claude allowed" or "Local only" first.'));
+  $('start').disabled = true;
+  $('transcript').innerHTML = WAITING; $('answers').innerHTML = ''; $('cost').textContent = '';
+  try {
+    await api('/api/meeting/start', { title: $('title').value, app: $('app').value, backend: $('backend').value, claude, keepAudio: $('keepAudio').checked });
+    // The choice must be made again for each call, so a patient call never inherits "Claude allowed".
+    for (const r of document.querySelectorAll('input[name="claude"]')) r.checked = false;
+  } catch (e) { showError(e); }
+  await poll().catch(showError);
+};
+$('stop').onclick = async () => {
+  $('stop').disabled = true; clearInterval(clockTimer);
+  $('clock').textContent = 'Transcribing the last chunk, then writing the notes...'; $('clock').className = 'state busy';
+  try { showMarkdown((await api('/api/meeting/stop')).markdown); } catch (e) { showError(e); }
+  $('stop').disabled = false; $('clock').className = 'state listen';
+  await poll().catch(showError); loadMeetings().catch(showError);
+};
+$('ask').onclick = async () => {
+  const question = $('question').value.trim();
+  if (!question) return;
+  $('question').value = ''; $('ask').disabled = true;
+  try { await api('/api/meeting/ask', { question }); } catch (e) { showError(e); }
+  $('ask').disabled = false;
+};
+$('question').onkeydown = (e) => { if (e.key === 'Enter') $('ask').onclick(); };
+
+async function loadMeetings() {
+  const { meetings, unfinished } = await (await fetch('/api/meetings')).json();
+  $('unfinished').innerHTML = unfinished.map((id) => `<div class="row"><span class="quiet">Unfinished: ${esc(id)}</span><button data-id="${esc(id)}">Finish it</button></div>`).join('');
+  for (const b of $('unfinished').querySelectorAll('button')) b.onclick = async () => {
+    b.disabled = true;
+    try { showMarkdown((await api('/api/meetings/finish', { id: b.dataset.id })).markdown); } catch (e) { showError(e); }
+    loadMeetings().catch(showError);
+  };
+  const done = meetings.filter((m) => m.done);
+  $('meetingList').innerHTML = done.length ? '' : '<span class="quiet">No meetings yet.</span>';
+  for (const m of done) {
+    const row = document.createElement('div'); row.className = 'row';
+    const local = m.claude === 'local';
+    row.innerHTML = `<input type="checkbox" value="${esc(m.id)}" style="width:auto" ${local ? 'disabled title="Local only: never sent to Claude"' : ''}><button>${esc(m.title)}, ${new Date(m.startedAt).toISOString().slice(0, 10)}${local ? ', local only' : ''}</button>`;
+    row.querySelector('button').onclick = async () => {
+      const x = await (await fetch('/api/meetings/' + encodeURIComponent(m.id))).json();
+      showMarkdown(x.notes + (x.companion ? '\n## Questions during the call\n\n' + x.companion : ''));
+    };
+    $('meetingList').append(row);
+  }
+}
+$('crossAsk').onclick = async () => {
+  const ids = [...$('meetingList').querySelectorAll('input:checked')].map((i) => i.value);
+  const question = $('crossQ').value.trim();
+  if (!ids.length || !question) return showError(new Error('Tick at least one meeting and type a question.'));
+  $('crossAsk').disabled = true;
+  try {
+    const r = await api('/api/meetings/ask', { ids, question, backend: $('backend').value });
+    $('crossAnswer').textContent = r.text + (r.skipped ? `\n\n(${r.skipped} local-only meeting skipped)` : '');
+    $('crossAnswer').classList.remove('hidden');
+  } catch (e) { showError(e); }
+  $('crossAsk').disabled = false;
+};
+
+$('download').onclick = async () => { $('error').textContent = ''; await api('/api/model/download'); poll().catch(showError); };
+$('delete').onclick = async () => {
+  if (!deleteArmed) { deleteArmed = true; $('delete').textContent = 'Click again to delete'; setTimeout(() => { deleteArmed = false; $('delete').textContent = 'Delete to free space'; }, 4000); return; }
+  deleteArmed = false; $('delete').textContent = 'Delete to free space';
+  try { await api('/api/model/delete'); } catch (e) { showError(e); }
+  poll().catch(showError);
+};
+
+poll().catch(showError);
+loadMeetings().catch(showError);
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+node_modules/
+bin/
+meetings/
+aside.config.json
+.claude-headless/
+.DS_Store
+docs/plans/
