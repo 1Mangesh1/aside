@@ -105,9 +105,9 @@ async function poll() {
   clearTimeout(pollTimer);
   S = await (await fetch('/api/status')).json();
   const m = S.model, size = gb(m.expectedBytes);
+  const asrHint = S.asrError ? `The speech worker could not start (${S.asrError}). Install uv, or check the PATH aside starts with.` : '';
   $('start').disabled = !S.recorder || !m.downloaded;
-  $('startHint').textContent = !S.recorder ? 'Build the recorder first: npm run build:capture' : !m.downloaded ? 'Download the speech model first.'
-    : S.asrError ? `The speech worker could not start (${S.asrError}). Install uv, or check the PATH aside starts with.` : '';
+  $('startHint').textContent = !S.recorder ? 'Build the recorder first: npm run build:capture' : !m.downloaded ? 'Download the speech model first.' : asrHint;
   $('dlMeter').classList.toggle('hidden', !m.downloading);
   $('download').classList.toggle('hidden', m.downloaded || m.downloading);
   $('delete').classList.toggle('hidden', !(m.downloaded || m.bytes > 0) || m.downloading);
@@ -116,6 +116,7 @@ async function poll() {
   else if (m.downloading) $('modelText').textContent = 'Downloaded. Loading into memory...';
   else if (S.asrReady) $('modelText').textContent = `Ready. Using ${gb(m.bytes)} GB of disk. Delete it when you are done.`;
   else if (m.downloaded) $('modelText').textContent = `Downloaded (${gb(m.bytes)} GB). It loads into memory when a meeting starts and unloads after 10 idle minutes.`;
+  else if (asrHint) $('modelText').textContent = asrHint;
   else if (m.bytes > 0) $('modelText').textContent = `Partly downloaded: ${gb(m.bytes)} of ${size} GB.`;
   else $('modelText').textContent = `Not on this Mac. Download it to use aside (${size} GB, once).`;
   const c = S.claude;
