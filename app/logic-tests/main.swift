@@ -69,5 +69,18 @@ for t in 21...31 { seen += gap.step(active: [], recording: false, now: Double(t)
 for t in 40...44 { seen += gap.step(active: ["us.zoom.xos"], recording: false, now: Double(t)) }
 check(seen.isEmpty && gap.step(active: ["us.zoom.xos"], recording: false, now: 45) == [.callStarted("us.zoom.xos")], "10 s gap: a new call prompts again")
 
+// Keep recording stays manual until the recording stops, even if a watched app takes the mic again.
+var man = CallDetector(watch: apps)
+_ = man.step(active: ["us.zoom.xos"], recording: true, now: 0)
+_ = man.step(active: [], recording: true, now: 1)
+check(man.step(active: [], recording: true, now: 11) == [.callEnded], "manual: ended")
+man.keepRecording()
+check(man.step(active: ["us.zoom.xos"], recording: true, now: 20).isEmpty && man.step(active: [], recording: true, now: 30).isEmpty, "manual: mic back and released")
+check(man.step(active: [], recording: true, now: 40).isEmpty && man.step(active: [], recording: true, now: 150).isEmpty, "manual: no end prompt, no auto stop")
+_ = man.step(active: [], recording: false, now: 200)
+_ = man.step(active: ["us.zoom.xos"], recording: true, now: 300)
+_ = man.step(active: [], recording: true, now: 301)
+check(man.step(active: [], recording: true, now: 311) == [.callEnded], "manual mode ends with the recording")
+
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("logic tests passed")

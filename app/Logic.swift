@@ -28,9 +28,9 @@ enum DetectEvent: Equatable { case callStarted(String), callEnded, autoStop }
 // ("com.google.Chrome.helper"). Only a recording that saw a call is stopped when the call goes away.
 struct CallDetector {
   var watch: [String]
-  var startDelay = 5.0, endDelay = 10.0, stopDelay = 120.0
+  let startDelay = 5.0, endDelay = 10.0, stopDelay = 120.0
   private var app: String?, since = 0.0, prompted = false
-  private var sawCall = false, releasedAt: Double?, endPrompted = false
+  private var sawCall = false, manual = false, releasedAt: Double?, endPrompted = false
 
   init(watch: [String]) { self.watch = watch }
 
@@ -38,11 +38,11 @@ struct CallDetector {
 
   mutating func step(active: [String], recording: Bool, now: Double) -> [DetectEvent] {
     var out: [DetectEvent] = []
-    if !recording { sawCall = false; endPrompted = false }
+    if !recording { sawCall = false; manual = false; endPrompted = false }
     if let current = active.compactMap(watched).first {
       if current != app { app = current; since = now; prompted = false }
       releasedAt = nil
-      if recording { sawCall = true; prompted = true; endPrompted = false }
+      if recording { sawCall = !manual; prompted = true; endPrompted = false }
       else if !prompted && now - since >= startDelay { prompted = true; out.append(.callStarted(current)) }
     } else {
       let r = releasedAt ?? now
@@ -58,5 +58,5 @@ struct CallDetector {
   }
 
   // The user chose Keep recording: treat the meeting as manual until it stops.
-  mutating func keepRecording() { sawCall = false; endPrompted = false }
+  mutating func keepRecording() { manual = true; sawCall = false; endPrompted = false }
 }
