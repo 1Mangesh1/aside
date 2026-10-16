@@ -44,7 +44,7 @@ struct CallDetector {
 
   init(watch: [String]) { self.watch = watch }
 
-  private func watched(_ id: String) -> String? { watch.first { id == $0 || id.hasPrefix($0 + ".") } }
+  func watched(_ id: String) -> String? { watch.first { id == $0 || id.hasPrefix($0 + ".") } }
 
   mutating func step(active: [String], recording: Bool, now: Double) -> [DetectEvent] {
     var out: [DetectEvent] = []
