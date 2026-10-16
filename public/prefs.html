@@ -10,19 +10,19 @@
   @media (prefers-color-scheme: dark) { :root { --bg:#151515; --panel:#1e1e1e; --ink:#ecebe8; --quiet:#a3a3a8; --line:#2f2f2f; --accent:#e0703e; --ok:#5fb37f; --bad:#ef6b62; } }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  main { padding: 0 16px 12px; }
-  section { padding-bottom: 10px; border-bottom: 1px solid var(--line); } section:last-of-type { border: 0; }
-  h2 { font-size: 13px; margin: 12px 0 4px; }
-  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 32px; }
+  main { padding: 0 16px 8px; }
+  section { padding-bottom: 6px; border-bottom: 1px solid var(--line); } section:last-of-type { border: 0; }
+  h2 { font-size: 13px; margin: 10px 0 2px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 28px; }
   .name { flex: none; width: 112px; } .grow { flex: 1; min-width: 0; }
   button, select, input { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
-  button { min-height: 26px; padding: 0 10px; cursor: pointer; } button:disabled { opacity: .45; cursor: default; }
-  select, input:not([type=checkbox]) { height: 28px; padding: 0 8px; } input[type=checkbox] { margin: 0 6px 0 0; vertical-align: -2px; }
+  button { min-height: 24px; padding: 0 10px; cursor: pointer; } button:disabled { opacity: .45; cursor: default; }
+  select, input:not([type=checkbox]) { height: 26px; padding: 0 8px; } input[type=checkbox] { margin: 0 6px 0 0; vertical-align: -2px; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   kbd { min-width: 64px; font: 600 15px/1 -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: 1px; }
-  fieldset { border: 0; padding: 0; margin: 0; min-width: 0; } fieldset:disabled { opacity: .45; } legend { padding: 0; }
+  fieldset { border: 0; padding: 0; margin: 0; min-width: 0; } fieldset:disabled { opacity: .45; }
   ul { list-style: none; padding: 0; margin: 2px 0 4px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 20px; }
-  li { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 28px; } li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  li { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 24px; } li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
   .quiet { color: var(--quiet); } .ok, .msg { color: var(--ok); } .err, .msg.err { color: var(--bad); }
   .hidden { display: none !important; }
@@ -30,6 +30,13 @@
 </head>
 <body>
 <main>
+  <section class="hidden" id="appSec"><h2>App</h2>
+    <div class="row"><label><input type="checkbox" id="loginItem">Launch at login</label></div>
+    <div class="err" id="nativeErr"></div>
+    <div class="row"><span class="name">Microphone</span><span class="grow" id="mic">Checking...</span><button data-pane="microphone" aria-label="Open System Settings for the microphone">Open System Settings</button></div>
+    <div class="row"><span class="name">Screen Recording</span><span class="grow" id="screen">Checking...</span><button data-pane="screen" aria-label="Open System Settings for Screen Recording">Open System Settings</button></div>
+  </section>
+
   <section><h2>Hot keys</h2>
     <div class="row"><span class="name" id="n-hotkeyOpen">Open aside</span><kbd id="k-hotkeyOpen"></kbd><button id="b-hotkeyOpen" data-hotkey="hotkeyOpen" aria-labelledby="b-hotkeyOpen n-hotkeyOpen">Change</button><span class="msg" id="m-hotkeyOpen" aria-live="polite"></span></div>
     <div class="row"><span class="name" id="n-hotkeyAsk">Ask Claude</span><kbd id="k-hotkeyAsk"></kbd><button id="b-hotkeyAsk" data-hotkey="hotkeyAsk" aria-labelledby="b-hotkeyAsk n-hotkeyAsk">Change</button><span class="msg" id="m-hotkeyAsk" aria-live="polite"></span></div>
@@ -37,7 +44,7 @@
 
   <section><h2>Meeting detection</h2>
     <div class="row"><label><input type="checkbox" role="switch" id="detect">Ask to record when one of these apps uses the microphone</label><span class="msg" id="m-detect" aria-live="polite"></span></div>
-    <fieldset id="appsBox"><legend class="quiet">Apps</legend>
+    <fieldset id="appsBox" aria-label="Apps">
       <ul id="apps"></ul>
       <form class="row" id="addForm"><label class="name" for="addApp">Add a bundle id</label><input class="grow" id="addApp" placeholder="com.example.app" spellcheck="false" autocapitalize="off"><button>Add</button></form>
       <div class="msg" id="m-detectApps" aria-live="polite"></div>
@@ -51,13 +58,6 @@
     <div class="row"><label class="name" for="meetingsDir">Meetings folder</label><input class="grow" id="meetingsDir" placeholder="Default folder" spellcheck="false" autocapitalize="off" aria-describedby="dirNote"></div>
     <div class="msg" id="m-meetingsDir" aria-live="polite"></div>
     <div class="quiet" id="dirNote">Leave it empty for the default folder. Takes effect the next time aside starts.</div>
-  </section>
-
-  <section class="hidden" id="appSec"><h2>App</h2>
-    <div class="row"><label><input type="checkbox" id="loginItem">Launch at login</label></div>
-    <div class="err" id="nativeErr"></div>
-    <div class="row"><span class="name">Microphone</span><span class="grow" id="mic">Checking...</span><button data-pane="microphone" aria-label="Open System Settings for the microphone">Open System Settings</button></div>
-    <div class="row"><span class="name">Screen Recording</span><span class="grow" id="screen">Checking...</span><button data-pane="screen" aria-label="Open System Settings for Screen Recording">Open System Settings</button></div>
   </section>
   <div class="err" id="err"></div>
 </main>
@@ -101,9 +101,11 @@ async function save(key, value) {
   render();
 }
 
-function stopRecording() { if (recording) recording.textContent = 'Change'; recording = null; }
+// The app pauses its global hot keys while one is recorded, or macOS would take the keys before the page sees them.
+function stopRecording() { if (!recording) return; recording.textContent = 'Change'; recording = null; bridge?.postMessage({ type: 'recordingHotkey', on: false }); }
 for (const b of document.querySelectorAll('[data-hotkey]')) {
-  b.onclick = () => { stopRecording(); recording = b; b.focus(); b.textContent = 'Type the keys (Esc cancels)'; note(b.dataset.hotkey, ''); };
+  // WebKit does not focus a clicked button. focus() runs first, so the blur of another recording button cannot stop this one.
+  b.onclick = () => { b.focus(); stopRecording(); recording = b; b.textContent = 'Type the keys (Esc cancels)'; bridge?.postMessage({ type: 'recordingHotkey', on: true }); note(b.dataset.hotkey, ''); };
   b.onblur = stopRecording;
 }
 // e.code, not e.key: with Option held, e.key is a special character (Option+A gives "å").

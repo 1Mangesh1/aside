@@ -223,12 +223,14 @@ $('delete').onclick = async () => {
 
 // The preferences only preselect; each meeting can still change them.
 fetch('/api/prefs').then((r) => r.json()).then((p) => { $('backend').value = p.backend; $('keepAudio').checked = p.keepAudio; }).catch(showError);
-// A link from the menu-bar app, /#<meeting id>, opens that meeting's notes. It waits for the sections above the
-// notes, so they do not push the notes out of view after the scroll.
-Promise.all([poll().catch(showError), loadMeetings().catch(showError)]).then(async () => {
+// A link from the menu-bar app, /#<meeting id>, opens that meeting's notes, also when the app changes the hash of an
+// open page. The first one waits for the sections above the notes, so they do not push the notes out of view.
+async function openLinked() {
   const id = location.hash.slice(1);
   if (/^[\w-]+$/.test(id)) { await openMeeting(id); $('meetingView').scrollIntoView(); }
-}).catch(showError);
+}
+Promise.all([poll().catch(showError), loadMeetings().catch(showError)]).then(openLinked).catch(showError);
+addEventListener('hashchange', () => openLinked().catch(showError));
 </script>
 </body>
 </html>
