@@ -38,23 +38,25 @@ struct CallDetector {
 
   mutating func step(active: [String], recording: Bool, now: Double) -> [DetectEvent] {
     var out: [DetectEvent] = []
-    if !recording { sawCall = false; releasedAt = nil; endPrompted = false }
+    if !recording { sawCall = false; endPrompted = false }
     if let current = active.compactMap(watched).first {
       if current != app { app = current; since = now; prompted = false }
-      if recording { sawCall = true; prompted = true; releasedAt = nil; endPrompted = false }
+      releasedAt = nil
+      if recording { sawCall = true; prompted = true; endPrompted = false }
       else if !prompted && now - since >= startDelay { prompted = true; out.append(.callStarted(current)) }
     } else {
-      app = nil; prompted = false
+      let r = releasedAt ?? now
+      releasedAt = r
+      // A gap shorter than endDelay (mute, device change, a missed read) is still the same call.
+      if now - r >= endDelay { app = nil; prompted = false }
       if recording && sawCall {
-        let r = releasedAt ?? now
-        releasedAt = r
         if !endPrompted && now - r >= endDelay { endPrompted = true; out.append(.callEnded) }
-        if now - r >= stopDelay { sawCall = false; releasedAt = nil; out.append(.autoStop) }
+        if now - r >= stopDelay { sawCall = false; out.append(.autoStop) }
       }
     }
     return out
   }
 
   // The user chose Keep recording: treat the meeting as manual until it stops.
-  mutating func keepRecording() { sawCall = false; releasedAt = nil; endPrompted = false }
+  mutating func keepRecording() { sawCall = false; endPrompted = false }
 }

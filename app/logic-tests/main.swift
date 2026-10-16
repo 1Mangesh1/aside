@@ -56,5 +56,18 @@ _ = early.step(active: [], recording: true, now: 0)
 _ = early.step(active: ["us.zoom.xos"], recording: true, now: 2)
 check(early.step(active: ["us.zoom.xos"], recording: false, now: 300).isEmpty, "stopped mid-call")
 
+// A short mic gap (mute, device change, a missed read) is the same call. A gap of 10 s or more ends it.
+var gap = CallDetector(watch: apps)
+var seen: [DetectEvent] = []
+for t in 0...5 { seen += gap.step(active: ["us.zoom.xos"], recording: false, now: Double(t)) }
+check(seen == [.callStarted("us.zoom.xos")], "first prompt")
+seen = []
+for t in [7, 9] { seen += gap.step(active: [], recording: false, now: Double(t)) }
+for t in 11...20 { seen += gap.step(active: ["us.zoom.xos"], recording: false, now: Double(t)) }
+check(seen.isEmpty, "short gap: same call, no second prompt")
+for t in 21...31 { seen += gap.step(active: [], recording: false, now: Double(t)) }
+for t in 40...44 { seen += gap.step(active: ["us.zoom.xos"], recording: false, now: Double(t)) }
+check(seen.isEmpty && gap.step(active: ["us.zoom.xos"], recording: false, now: 45) == [.callStarted("us.zoom.xos")], "10 s gap: a new call prompts again")
+
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("logic tests passed")
