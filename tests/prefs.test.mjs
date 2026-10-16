@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { loadPrefs, savePrefs, meetingsBase, DEFAULTS } from '../lib/prefs.mjs';
@@ -26,6 +26,14 @@ test('savePrefs refuses values the app cannot use', () => {
     assert.throws(() => savePrefs(root, bad), { code: 400 }, JSON.stringify(bad));
   }
   assert.deepEqual(loadPrefs(root), DEFAULTS, 'nothing was written');
+});
+
+test('savePrefs refuses a body that is not an object', () => {
+  const root = dir();
+  for (const bad of [null, [], 5, 'x']) {
+    assert.throws(() => savePrefs(root, bad), { code: 400 }, JSON.stringify(bad));
+  }
+  assert.equal(existsSync(join(root, 'prefs.json')), false, 'nothing was written');
 });
 
 test('meetingsBase uses the repository folder unless the user picked another', () => {
