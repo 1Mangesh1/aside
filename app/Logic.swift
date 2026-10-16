@@ -83,3 +83,16 @@ struct CallDetector {
   // The user chose Keep recording: the call no longer stops this recording.
   mutating func keepRecording() { stopMode = .kept; countdown = false }
 }
+
+// The output of `printf __ASIDE__; env -0` in a login shell, as an environment. The marker skips anything that the
+// shell's startup files print first. nil without the marker.
+func loginEnvironment(_ output: Data) -> [String: String]? {
+  guard let marker = output.range(of: Data("__ASIDE__".utf8)) else { return nil }
+  var env: [String: String] = [:]
+  for entry in output[marker.upperBound...].split(separator: 0) {
+    let text = String(decoding: entry, as: UTF8.self)
+    guard let eq = text.firstIndex(of: "=") else { continue }
+    env[String(text[..<eq])] = String(text[text.index(after: eq)...])
+  }
+  return env
+}

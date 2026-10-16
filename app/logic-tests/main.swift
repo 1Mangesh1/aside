@@ -151,5 +151,10 @@ var answered = CallDetector(watch: apps)
 check(poll(&answered, 0, 6, ["us.zoom.xos"], recording: false) == [6: [.callStarted("us.zoom.xos")]], "answered: prompt")
 check(poll(&answered, 8, 40, [], recording: true).isEmpty, "answered: no callGone while recording")
 
+// The login shell prints the marker, then `env -0`: NUL-separated KEY=VALUE pairs. A value can hold = and a newline.
+let shellOut = Data("Last login: Fri\n__ASIDE__PATH=/opt/homebrew/bin:/usr/bin\0NOTE=a=b\nline 2\0HOME=/Users/sam\0".utf8)
+check(loginEnvironment(shellOut) == ["PATH": "/opt/homebrew/bin:/usr/bin", "NOTE": "a=b\nline 2", "HOME": "/Users/sam"], "env -0 after the marker")
+check(loginEnvironment(Data("zsh: no such file\n".utf8)) == nil, "no marker")
+
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("logic tests passed")

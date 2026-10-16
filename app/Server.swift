@@ -20,9 +20,9 @@ final class ServerProcess {
     checking = true
     API.get("/api/status") { [self] status in
       if status != nil { checking = false; return appLog("using the server that already runs on port 4318") }
-      // The first read of the login shell's PATH can take seconds, so it runs off the main thread.
+      // The first read of the login environment can take seconds, so it runs off the main thread.
       DispatchQueue.global().async {
-        _ = Self.loginPath
+        _ = Self.shellEnvironment
         DispatchQueue.main.async { self.checking = false; self.launch() }
       }
     }
@@ -45,7 +45,8 @@ final class ServerProcess {
 
   private func launch() {
     var env = ProcessInfo.processInfo.environment
-    if let path = Self.loginPath { env["PATH"] = path }
+    env.merge(Self.shellEnvironment ?? [:]) { $1 }
+    for k in ["PWD", "OLDPWD"] { env[k] = nil } // the shell's folders, not the server's
     guard let node = env["PATH"]?.split(separator: ":").map({ "\($0)/node" }).first(where: FileManager.default.isExecutableFile(atPath:)) else {
       return fail("node is not on the PATH of your login shell. Install Node 22 or later (brew install node), then open aside again.")
     }
@@ -69,24 +70,24 @@ final class ServerProcess {
     guard restarts.count < 3 else { return fail("The server stopped 4 times within a minute.") }
     restarts.append(Date())
     appLog("restarting the server")
-    launch()
+    start() // not launch(): a server that took the port meanwhile, for example from ./aside.sh, is used instead
   }
 
-  private func fail(_ why: String) {
+  func fail(_ why: String) {
     failed = why
     appLog("server failed: \(why)")
   }
 
-  // An app opened from Finder gets the short launchd PATH, so node, uv and claude come from the login shell's PATH.
-  // The output goes to a file: a process that the startup files leave running would keep a pipe open. The marker
-  // skips anything that the startup files print first.
-  private static let loginPath: String? = {
-    let file = FileManager.default.temporaryDirectory.appendingPathComponent("aside-path-\(getpid())")
+  // An app opened from Finder gets the short launchd environment, so the server gets the login shell's environment:
+  // node, uv and claude on the PATH, and keys such as ANTHROPIC_API_KEY. The output goes to a file, because a
+  // process that the startup files leave running would keep a pipe open.
+  private static let shellEnvironment: [String: String]? = {
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("aside-env-\(getpid())")
     guard FileManager.default.createFile(atPath: file.path, contents: nil), let out = try? FileHandle(forWritingTo: file) else { return nil }
     defer { try? FileManager.default.removeItem(at: file) }
     let p = Process(), exited = DispatchSemaphore(value: 0)
-    p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-    p.arguments = ["-ilc", #"printf "__ASIDE__%s" "$PATH""#]
+    p.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
+    p.arguments = ["-ilc", "printf __ASIDE__; env -0"]
     p.standardInput = FileHandle.nullDevice
     p.standardOutput = out
     p.standardError = FileHandle.nullDevice
@@ -94,11 +95,10 @@ final class ServerProcess {
     guard (try? p.run()) != nil else { return nil }
     if exited.wait(timeout: .now() + 5) == .timedOut {
       p.terminate()
-      appLog("the login shell did not finish in 5 s, so the server gets the PATH that the app has")
+      appLog("the login shell did not finish in 5 s, so the server gets the environment that the app has")
       return nil
     }
-    let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
-    return text.range(of: "__ASIDE__").map { String(text[$0.upperBound...]) }
+    return (try? Data(contentsOf: file)).flatMap(loginEnvironment)
   }()
 }
 

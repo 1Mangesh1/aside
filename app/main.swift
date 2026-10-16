@@ -26,20 +26,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     item.menu = menu
     panel.onClose = { [weak self] in self?.updatePanel { self?.prompting = false } }
     server.start()
-    let timer = Timer(timeInterval: 1, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
+    let timer = Timer(timeInterval: 1, target: self, selector: #selector(refreshStatus), userInfo: nil, repeats: true)
     RunLoop.main.add(timer, forMode: .common) // .common, so the clock also moves while the menu is open
-    tick()
+    refreshStatus()
   }
 
   func applicationWillTerminate(_ notification: Notification) { server.stop() }
 
   // Back from System Settings, the preferences page shows the new permission state.
   func applicationDidBecomeActive(_ notification: Notification) { if let prefsWindow { answerNative(prefsWindow.web) } }
-
-  @objc private func tick() {
-    API.get("/api/prefs") { [self] p in if let p, p["error"] == nil { applyPrefs(p) } }
-    refreshStatus()
-  }
 
   private func applyPrefs(_ p: [String: Any]) {
     prefs = p
@@ -48,14 +43,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     if next != keys { keys = next; registerHotkeys() }
   }
 
-  private func refreshStatus() {
+  @objc private func refreshStatus() {
     API.get("/api/status") { [self] s in
+      // A server from before the menu-bar app has no `writing`. The app does not drive it.
+      if let s, s["writing"] == nil {
+        if server.failed == nil {
+          server.fail("An older aside server runs on port 4318. Stop it with ./aside.sh stop, then choose Restart server.")
+          hotkeys.unregisterAll()
+          keys = nil
+          activeKeys = []
+        }
+        status = nil
+        return updateIcon()
+      }
       status = s
       guard let s else { server.start(); return updateIcon() } // a server that someone else started may have stopped
+      API.get("/api/prefs") { [self] p in if let p, p["error"] == nil { applyPrefs(p) } }
       let id = (s["meeting"] as? [String: Any])?["id"] as? String
       updatePanel { meetingID = id; busy = id != nil || s["writing"] as? Bool == true }
       if prefs["detect"] as? Bool == true {
         detector.step(active: micBundleIDs(), recording: id != nil, now: ProcessInfo.processInfo.systemUptime).forEach(handle)
+      } else {
+        detector = CallDetector(watch: detector.watch) // turned on again, it starts clean instead of ending an old call
       }
       updateIcon()
     }
