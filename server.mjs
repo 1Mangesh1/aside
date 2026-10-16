@@ -135,6 +135,7 @@ export function makeRoutes({ base, claude, getAsr, wantAsr = async () => {}, rec
         return await finish(m.dir, m.meta, m.transcriber);
       } finally {
         finishing.delete(id);
+        emit({ type: 'state' }); // writing() is false again: the notes are written, or they failed
       }
     },
     'POST /api/meeting/ask': async (d) => {
@@ -170,6 +171,7 @@ export function makeRoutes({ base, claude, getAsr, wantAsr = async () => {}, rec
         return await finish(dir, meta, m.transcriber);
       } finally {
         finishing.delete(id);
+        emit({ type: 'state' });
       }
     },
     'POST /api/meetings/ask': async (d) => {

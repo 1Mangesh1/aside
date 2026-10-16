@@ -139,6 +139,34 @@ test('a repeated chunk announcement is ignored, and transcript events carry the 
   assert.ok(events.some((e) => e.type === 'lines' && e.id === id));
 });
 
+test('Stop and "Finish it" send a last state event once the notes are written or have failed', async () => {
+  let dir, app; // the meeting whose notes.md the spy looks for, and the routes that report writing()
+  const states = [];
+  const emit = (e) => { if (e.type === 'state') states.push({ writing: app.writing(), notes: !!dir && existsSync(join(dir, 'notes.md')) }); };
+  const s = setup({ emit });
+  app = s.app;
+  await s.routes['POST /api/meeting/start']({ title: 'Release sync', claude: 'allowed' });
+  dir = s.rec.dir;
+  chunk(s.rec, 1);
+  states.length = 0;
+  await s.routes['POST /api/meeting/stop']();
+  assert.deepEqual(states, [{ writing: true, notes: false }, { writing: false, notes: true }]);
+
+  dir = newMeeting(s.base, { title: 'Legal review', claude: 'local', keepAudio: false, backend: 'auto', app: '' }).dir;
+  states.length = 0;
+  await s.routes['POST /api/meetings/finish']({ id: basename(dir) });
+  assert.deepEqual(states, [{ writing: false, notes: true }]);
+
+  const f = setup({ emit, claude: { status: () => ({}), ask: async () => { throw new Error('Credit used up.'); } } });
+  app = f.app;
+  await f.routes['POST /api/meeting/start']({ title: 'Release sync', claude: 'allowed' });
+  dir = f.rec.dir;
+  chunk(f.rec, 1);
+  states.length = 0;
+  await assert.rejects(f.routes['POST /api/meeting/stop'](), /Credit used up/);
+  assert.deepEqual(states, [{ writing: true, notes: false }, { writing: false, notes: false }]);
+});
+
 test('stop() returns for a recorder that already exited by itself, also after a signal', { timeout: 10000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'aside-rec-'));
   for (const [name, script] of [['exits.sh', 'echo recording; sleep 0.3; exit 1'], ['killed.sh', 'echo recording; sleep 0.3; kill -9 $$']]) {
