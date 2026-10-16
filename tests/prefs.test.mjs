@@ -36,6 +36,15 @@ test('savePrefs refuses a body that is not an object', () => {
   assert.equal(existsSync(join(root, 'prefs.json')), false, 'nothing was written');
 });
 
+test('savePrefs takes any Command or Control hot key but refuses two equal ones', () => {
+  const root = dir();
+  savePrefs(root, { hotkeyOpen: 'shift+ctrl+9' });
+  assert.equal(loadPrefs(root).hotkeyOpen, 'shift+ctrl+9');
+  const other = dir();
+  assert.throws(() => savePrefs(other, { hotkeyAsk: 'opt+cmd+a' }), { code: 400 });
+  assert.equal(loadPrefs(other).hotkeyAsk, 'opt+cmd+k');
+});
+
 test('meetingsBase uses the repository folder unless the user picked another', () => {
   assert.equal(meetingsBase('/repo', DEFAULTS), '/repo/meetings');
   assert.equal(meetingsBase('/repo', { ...DEFAULTS, meetingsDir: '~/Documents/aside' }), join(homedir(), 'Documents/aside'));
