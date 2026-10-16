@@ -105,8 +105,8 @@ async function poll() {
   clearTimeout(pollTimer);
   S = await (await fetch('/api/status')).json();
   const m = S.model, size = gb(m.expectedBytes);
-  $('start').disabled = !S.recorder || !S.asrReady;
-  $('startHint').textContent = !S.recorder ? 'Build the recorder first: npm run build:capture' : !S.asrReady ? 'Waiting for the speech model.' : '';
+  $('start').disabled = !S.recorder || !m.downloaded;
+  $('startHint').textContent = !S.recorder ? 'Build the recorder first: npm run build:capture' : !m.downloaded ? 'Download the speech model first.' : '';
   $('dlMeter').classList.toggle('hidden', !m.downloading);
   $('download').classList.toggle('hidden', m.downloaded || m.downloading);
   $('delete').classList.toggle('hidden', !(m.downloaded || m.bytes > 0) || m.downloading);
@@ -114,12 +114,13 @@ async function poll() {
   if (m.downloading && !m.downloaded) { $('modelText').textContent = `Downloading: ${gb(m.bytes)} of ${size} GB`; $('dlBar').style.width = Math.min(100, 100 * m.bytes / m.expectedBytes) + '%'; }
   else if (m.downloading) $('modelText').textContent = 'Downloaded. Loading into memory...';
   else if (S.asrReady) $('modelText').textContent = `Ready. Using ${gb(m.bytes)} GB of disk. Delete it when you are done.`;
+  else if (m.downloaded) $('modelText').textContent = `Downloaded (${gb(m.bytes)} GB). It loads into memory when a meeting starts and unloads after 10 idle minutes.`;
   else if (m.bytes > 0) $('modelText').textContent = `Partly downloaded: ${gb(m.bytes)} of ${size} GB.`;
   else $('modelText').textContent = `Not on this Mac. Download it to use aside (${size} GB, once).`;
   const c = S.claude;
   $('claudeText').textContent = `Claude: API ${c.api ? 'available' : 'not available (no key or credit used up)'}; Claude Code ${c.cliIsolated ? 'isolated' : 'shares your CLAUDE.md (run the one-time login in the README to isolate it)'}.`;
   showLive(S.meeting);
-  if (m.downloading || (m.downloaded && !S.asrReady)) pollTimer = setTimeout(() => poll().catch(showError), 2000);
+  if (m.downloading) pollTimer = setTimeout(() => poll().catch(showError), 2000);
 }
 function showLive(meeting) {
   $('setup').classList.toggle('hidden', !!meeting);

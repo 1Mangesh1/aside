@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { modelDir, modelState, deleteModel } from '../lib/asr.mjs';
+import { modelDir, modelState, deleteModel, makeAsrManager } from '../lib/asr.mjs';
 
 test('modelDir follows the Hugging Face cache rules', () => {
   const name = 'models--mlx-community--parakeet-tdt-0.6b-v3';
@@ -27,4 +27,45 @@ test('modelState and deleteModel handle the shared blob store', () => {
   assert.ok(!existsSync(md('a')) && existsSync(join(hub, 'blobs/9a/sha1')), 'a shared file another model links to stays');
   deleteModel(md('b'));
   assert.ok(!existsSync(join(hub, 'blobs/9a/sha1')), 'the shared file goes once nothing links to it');
+});
+
+test('makeAsrManager starts the worker only when wanted, and stops it after the idle time', () => {
+  let t = 0, started = 0;
+  const workers = [];
+  const start = () => { started++; const w = { ready: true, exited: false, kill() { this.exited = true; } }; workers.push(w); return w; };
+  const m = makeAsrManager({ start, downloaded: () => true, idleMs: 600_000, now: () => t });
+  m.tick(false);
+  assert.equal(started, 0, 'idle server: no worker');
+  m.want();
+  assert.equal(started, 1);
+  m.want();
+  assert.equal(started, 1, 'a live worker is reused');
+  t = 599_000; m.tick(false);
+  assert.equal(workers[0].exited, false, 'not idle long enough');
+  t = 601_000; m.tick(false);
+  assert.equal(workers[0].exited, true, 'stopped after 10 idle minutes');
+  assert.equal(m.get(), null);
+  m.tick(true);
+  assert.equal(started, 2, 'busy (a meeting or waiting chunks) starts it again');
+});
+
+test('makeAsrManager never starts a worker for a model that is not on disk', () => {
+  let started = 0;
+  const m = makeAsrManager({ start: () => { started++; return {}; }, downloaded: () => false });
+  m.want(); m.tick(true);
+  assert.equal(started, 0);
+});
+
+test('makeAsrManager keeps a worker that is still downloading or loading the model', () => {
+  let t = 0;
+  const w = { ready: false, exited: false, kill() { this.exited = true; } };
+  const m = makeAsrManager({ start: () => assert.fail('no second worker'), downloaded: () => false, now: () => t });
+  m.set(w);
+  t = 3_600_000; m.tick(false);
+  assert.equal(w.exited, false, 'an hour-long download is not idle');
+  w.ready = true;
+  t += 599_000; m.tick(false);
+  assert.equal(w.exited, false, 'the idle time counts from the end of the load');
+  t += 2_000; m.tick(false);
+  assert.equal(w.exited, true);
 });

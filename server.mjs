@@ -7,7 +7,7 @@ import { join, dirname, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { modelDir, modelState, deleteModel, startAsr, MODEL_BYTES, ASR_MODEL } from './lib/asr.mjs';
+import { modelDir, modelState, deleteModel, startAsr, makeAsrManager, MODEL_BYTES, ASR_MODEL } from './lib/asr.mjs';
 import { makeClaude } from './lib/claude.mjs';
 import { transcriptText, notesFile, NOTES_SYSTEM, COMPANION_SYSTEM, ASK_MEETINGS_SYSTEM, companionPrompt } from './lib/notes.mjs';
 import { loadRedactions, redact } from './lib/redact.mjs';
@@ -52,7 +52,7 @@ export function startRecorder(bin, out, app, onChunk) {
   });
 }
 
-export function makeRoutes({ base, claude, getAsr, record, redactions = [], emit = () => {} }) {
+export function makeRoutes({ base, claude, getAsr, wantAsr = async () => {}, record, redactions = [], emit = () => {} }) {
   let live = null; // { dir, meta, child, transcriber }
   let starting = false; // a second Start during the recorder's start-up would run two recorders
   const finishing = new Set(); // meeting ids being finished, so a second tab cannot finish one twice
@@ -94,6 +94,7 @@ export function makeRoutes({ base, claude, getAsr, record, redactions = [], emit
     'POST /api/meeting/start': async (d) => {
       if (live || starting) throw fail('A meeting is already recording.', 409);
       if (!['allowed', 'local'].includes(d.claude)) throw fail('Choose "Claude allowed" or "local only" first.', 400);
+      wantAsr(); // not awaited: the model loads while the recorder starts, and the first chunks wait for it
       starting = true;
       try {
         const m = newMeeting(base, { title: String(d.title || '').trim() || 'Meeting', claude: d.claude, keepAudio: !!d.keepAudio, backend: backendOf(d.backend), app: String(d.app || '').trim() });
@@ -129,6 +130,7 @@ export function makeRoutes({ base, claude, getAsr, record, redactions = [], emit
         m.meta.stoppedAt = Date.now();
         saveMeta(m.dir, m.meta);
         emit({ type: 'state' });
+        await wantAsr();
         return await finish(m.dir, m.meta, m.transcriber);
       } finally {
         finishing.delete(id);
@@ -163,6 +165,7 @@ export function makeRoutes({ base, claude, getAsr, record, redactions = [], emit
         saveMeta(dir, meta);
         const m = { dir, meta };
         m.transcriber = makeTranscriber({ meeting: m, getAsr, onLines: () => {} });
+        await wantAsr();
         return await finish(dir, meta, m.transcriber);
       } finally {
         finishing.delete(id);
@@ -187,6 +190,8 @@ export function makeRoutes({ base, claude, getAsr, record, redactions = [], emit
     current: () => live && { id: basename(live.dir), title: live.meta.title, claude: live.meta.claude, startedAt: live.meta.startedAt, spent: live.meta.spent },
     lines: () => (live ? { id: basename(live.dir), lines: loadTranscript(live.dir).lines } : null),
     runPending: () => live?.transcriber.run(),
+    busy: () => !!live || finishing.size > 0,
+    writing: () => finishing.size > 0,
   };
 }
 
@@ -197,31 +202,39 @@ export function serve() {
   let prefs = loadPrefs(ROOT);
   const base = meetingsBase(ROOT, prefs);
   // The worker loads (and, if missing, downloads) the model, so start it only when the model is already here.
-  let asr = modelState(dir).downloaded ? startAsr(join(ROOT, 'asr_worker.py')) : null;
-  const ensureAsr = () => { if (modelState(dir).downloaded && (!asr || asr.exited)) asr = startAsr(join(ROOT, 'asr_worker.py')); };
+  const asrMgr = makeAsrManager({ start: () => startAsr(join(ROOT, 'asr_worker.py')), downloaded: () => modelState(dir).downloaded });
+  // Resolves once the worker is ready, has exited, is impossible (no model), or after 2 minutes; finish() then
+  // reports a worker that is still down.
+  const wantAsr = async () => {
+    for (let i = 0; i < 600; i++) {
+      const a = asrMgr.want();
+      if (!a || a.ready || a.exited) return;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+  };
   const clients = new Set();
   const emit = (event) => { for (const res of clients) res.write(`data: ${JSON.stringify(event)}\n\n`); };
-  const app = makeRoutes({ base, claude, getAsr: () => asr, redactions: loadRedactions(ROOT), emit, record: (out, name, onChunk) => startRecorder(recorder, out, name, onChunk) });
+  const app = makeRoutes({ base, claude, getAsr: () => asrMgr.get(), wantAsr, redactions: loadRedactions(ROOT), emit, record: (out, name, onChunk) => startRecorder(recorder, out, name, onChunk) });
   // A restarted speech worker picks up the chunks that waited while it was down.
-  setInterval(() => { ensureAsr(); app.runPending(); }, 5000).unref();
+  setInterval(() => { asrMgr.tick(app.busy()); app.runPending(); }, 5000).unref();
 
   const status = () => {
-    ensureAsr();
-    const m = modelState(dir);
+    const asr = asrMgr.get(), m = modelState(dir);
     return {
       asrReady: !!asr?.ready,
       model: { ...m, name: ASR_MODEL, expectedBytes: MODEL_BYTES, downloading: !!asr && !asr.ready && !asr.exited },
       claude: claude.status(),
       recorder: existsSync(recorder),
       meeting: app.current(),
+      writing: app.writing(),
     };
   };
   const routes = {
     ...app.routes,
-    'POST /api/model/download': async () => { if (!asr || asr.exited) asr = startAsr(join(ROOT, 'asr_worker.py')); return status(); },
+    'POST /api/model/download': async () => { if (!asrMgr.get() || asrMgr.get().exited) asrMgr.set(startAsr(join(ROOT, 'asr_worker.py'))); return status(); },
     'POST /api/model/delete': async () => {
       if (app.current()) throw fail('Stop the recording first.', 409);
-      if (asr) { asr.kill(); asr = null; }
+      asrMgr.get()?.kill(); asrMgr.set(null);
       deleteModel(dir);
       return status();
     },
