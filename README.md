@@ -22,6 +22,41 @@ npm run build:capture    # builds the Swift recorder, one time only
 
 On the page, press Download in the speech model panel. The Parakeet model is about 2.5 GB, and it goes to the Hugging Face cache. To stop the server, run `./aside.sh stop`. To read its log, run `./aside.sh log`.
 
+## Menu-bar app
+
+The menu-bar app runs aside without a terminal. Build it one time:
+
+```sh
+sh app/make-cert.sh    # makes a local signing certificate, one time only
+npm run build:app      # builds and installs ~/Applications/aside.app
+```
+
+The local certificate signs every build with the same identity, so macOS keeps the permissions of aside after a rebuild. To build the app again after a change, run `npm run build:app` again.
+
+Open aside from `~/Applications`. The app starts the server itself. If a server that `./aside.sh` started already runs, the app uses that server. The first time that aside records, macOS asks for Microphone and Screen Recording permission for aside. Grant both. After the Screen Recording grant, macOS can ask you to quit and reopen aside.
+
+The menu has these items:
+
+- Open aside: opens the page in a window.
+- Start meeting: starts a recording with "Local only" or "Claude allowed".
+- Stop and write notes: stops the recording, and Claude writes the notes.
+- Show panel: shows the floating panel with the live transcript and the question box.
+- Recent meetings: opens the notes of one of the 5 newest finished meetings.
+- Preferences…: opens the preferences window, with the hot keys, the meeting detection, the meeting defaults, and the login item.
+- Quit aside: stops the server that the app started.
+
+If the server fails, the menu also shows "Restart server" and "Show log".
+
+Two hot keys work in every app. ⌥⌘A opens aside. ⌥⌘K shows the panel and puts the cursor in the question box. To change a hot key, open Preferences. A hot key needs two modifier keys, and one of them must be Command or Control.
+
+When an app in the Meeting detection list holds the microphone for 5 seconds, the floating panel asks "Record this meeting?". Choose "Local only", "Claude allowed", or "Not now". If you do not answer and the call ends, the question closes. To turn detection off or to change the list of apps, open Preferences.
+
+10 seconds after the call app releases the microphone, the panel starts a countdown. aside stops the recording and writes the notes 2 minutes after the release, unless you press "Keep recording". aside stops a recording by itself only when a listed app held the microphone during the recording.
+
+The speech model loads when a meeting starts, and it unloads 10 minutes after the last meeting. To start aside each time that you log in, turn on the login item in Preferences.
+
+To use aside only in the browser, without the menu-bar app, start it with `./aside.sh` as in "Install and start".
+
 ## Record a meeting
 
 1. Type a title. In "Record call audio from", pick the meeting app, so that sound from other apps stays out of the recording.
@@ -67,7 +102,7 @@ CLAUDE_CONFIG_DIR="$PWD/.claude-headless" claude    # type /login, then /exit
 
 - Parakeet runs on the Mac, so the audio never leaves it.
 - Text goes to Claude only when you ask a question or when Claude writes the notes. Text never goes to Claude for a local-only meeting.
-- The recorder needs Screen Recording and Microphone permission for your terminal app. Grant them in System Settings > Privacy & Security.
+- The recorder needs Screen Recording and Microphone permission for the app that starts the server. That app is your terminal app with `./aside.sh`, or aside with the menu-bar app. Grant them in System Settings > Privacy & Security.
 
 ## Tests
 
