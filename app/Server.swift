@@ -7,27 +7,40 @@ let logFile: FileHandle = {
   return fd < 0 ? FileHandle.nullDevice : FileHandle(fileDescriptor: fd, closeOnDealloc: true)
 }()
 func appLog(_ text: String) { try? logFile.write(contentsOf: Data("[app] \(text)\n".utf8)) }
-
 // Runs `node server.mjs` in the checkout named by the Info.plist key AsideRoot. A server that already answers on the
-// port (for example one from aside.sh) is used as it is and never stopped.
+// port (for example one from aside.sh) is used as it is and never stopped. When it stops, the app starts its own.
 final class ServerProcess {
   private(set) var failed: String?
-  private var owned = false, stopping = false
   private var proc: Process?
+  private var checking = false, stopping = false
   private var restarts: [Date] = []
 
   func start() {
+    guard proc == nil, failed == nil, !checking else { return }
+    checking = true
     API.get("/api/status") { [self] status in
-      if status != nil { return appLog("using the server that already runs on port 4318") }
-      owned = true
-      launch()
+      if status != nil { checking = false; return appLog("using the server that already runs on port 4318") }
+      // The first read of the login shell's PATH can take seconds, so it runs off the main thread.
+      DispatchQueue.global().async {
+        _ = Self.loginPath
+        DispatchQueue.main.async { self.checking = false; self.launch() }
+      }
     }
   }
 
+  func restart() {
+    failed = nil
+    restarts = []
+    start()
+  }
+
+  // Waits up to 5 s, so that the server's SIGTERM handler can let the recorder close its last chunk.
   func stop() {
-    guard owned, let proc else { return }
+    guard let proc else { return }
     stopping = true
     proc.terminate()
+    let deadline = Date(timeIntervalSinceNow: 5)
+    while proc.isRunning && Date() < deadline { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05)) }
   }
 
   private func launch() {
@@ -45,7 +58,7 @@ final class ServerProcess {
     p.standardOutput = logFile
     p.standardError = logFile
     p.terminationHandler = { p in DispatchQueue.main.async { self.exited(p.terminationStatus) } }
-    do { try p.run(); proc = p; appLog("server started (pid \(p.processIdentifier))") } catch { fail("could not start node: \(error.localizedDescription)") }
+    do { try p.run(); proc = p; failed = nil; appLog("server started (pid \(p.processIdentifier))") } catch { fail("could not start node: \(error.localizedDescription)") }
   }
 
   private func exited(_ code: Int32) {
@@ -65,17 +78,26 @@ final class ServerProcess {
   }
 
   // An app opened from Finder gets the short launchd PATH, so node, uv and claude come from the login shell's PATH.
-  // The marker skips anything that the shell's startup files print first.
+  // The output goes to a file: a process that the startup files leave running would keep a pipe open. The marker
+  // skips anything that the startup files print first.
   private static let loginPath: String? = {
-    let p = Process(), out = Pipe()
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("aside-path-\(getpid())")
+    guard FileManager.default.createFile(atPath: file.path, contents: nil), let out = try? FileHandle(forWritingTo: file) else { return nil }
+    defer { try? FileManager.default.removeItem(at: file) }
+    let p = Process(), exited = DispatchSemaphore(value: 0)
     p.executableURL = URL(fileURLWithPath: "/bin/zsh")
     p.arguments = ["-ilc", #"printf "__ASIDE__%s" "$PATH""#]
     p.standardInput = FileHandle.nullDevice
     p.standardOutput = out
     p.standardError = FileHandle.nullDevice
+    p.terminationHandler = { _ in exited.signal() }
     guard (try? p.run()) != nil else { return nil }
-    let text = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-    p.waitUntilExit()
+    if exited.wait(timeout: .now() + 5) == .timedOut {
+      p.terminate()
+      appLog("the login shell did not finish in 5 s, so the server gets the PATH that the app has")
+      return nil
+    }
+    let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
     return text.range(of: "__ASIDE__").map { String(text[$0.upperBound...]) }
   }()
 }

@@ -1,7 +1,7 @@
 import AppKit
 import WebKit
 
-// WKUserContentController holds its handlers strongly; the weak link keeps a web view from holding the app delegate.
+// WKUserContentController holds its handlers strongly. The weak link keeps a web view from holding the app delegate.
 final class Bridge: NSObject, WKScriptMessageHandler {
   weak var app: AppDelegate?
   init(_ app: AppDelegate) { self.app = app }
@@ -63,7 +63,7 @@ final class FloatingPanel: NSPanel, WKNavigationDelegate {
   var onClose: () -> Void = {}
   private let bridge: Bridge
   private var web: WKWebView?
-  private var queued: [String]? // scripts that wait for the page to finish loading; nil once it has
+  private var queued: [String]? // scripts that wait for the page to finish loading, or nil once it has
 
   init(bridge: Bridge) {
     self.bridge = bridge

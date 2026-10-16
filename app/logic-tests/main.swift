@@ -111,6 +111,7 @@ var early = CallDetector(watch: apps)
 _ = early.step(active: [], recording: true, now: 0)
 _ = early.step(active: ["us.zoom.xos"], recording: true, now: 2)
 check(early.step(active: ["us.zoom.xos"], recording: false, now: 300).isEmpty, "stopped mid-call")
+check(poll(&early, 302, 340, [], recording: false).isEmpty, "the call goes after a recording: no callGone")
 
 // A short mic gap (mute, device change, a missed read) is the same call. A gap of 10 s or more ends it.
 var gap = CallDetector(watch: apps)
@@ -123,7 +124,7 @@ for t in 11...20 { seen += gap.step(active: ["us.zoom.xos"], recording: false, n
 check(seen.isEmpty, "short gap: same call, no second prompt")
 for t in 21...31 { seen += gap.step(active: [], recording: false, now: Double(t)) }
 for t in 40...44 { seen += gap.step(active: ["us.zoom.xos"], recording: false, now: Double(t)) }
-check(seen.isEmpty, "10 s gap: the call ended without a prompt")
+check(seen == [.callGone], "10 s gap: the call ended, and its unanswered prompt with it")
 check(gap.step(active: ["us.zoom.xos"], recording: false, now: 45) == [.callStarted("us.zoom.xos")], "10 s gap: a new call prompts again")
 
 // Keep recording stays manual until the recording stops, even if a watched app holds the mic again.
@@ -138,6 +139,17 @@ check(poll(&man, 30, 200, [], recording: true).isEmpty, "manual: no end prompt, 
 _ = man.step(active: [], recording: false, now: 202)
 check(poll(&man, 300, 306, ["us.zoom.xos"], recording: true).isEmpty, "new recording: call held 6 s")
 check(poll(&man, 308, 318, [], recording: true) == [318: [.callEnded]], "manual mode ends with the recording")
+
+// An unanswered prompt closes when the call goes, once, and only a prompt that is still open does.
+var gone = CallDetector(watch: apps)
+check(poll(&gone, 0, 6, ["us.zoom.xos"], recording: false) == [6: [.callStarted("us.zoom.xos")]], "gone: prompt")
+check(poll(&gone, 8, 40, [], recording: false) == [18: [.callGone]], "gone: 10 s after the mic went, once")
+var brief = CallDetector(watch: apps)
+check(poll(&brief, 0, 2, ["us.zoom.xos"], recording: false).isEmpty, "brief: no prompt yet")
+check(poll(&brief, 4, 40, [], recording: false).isEmpty, "brief: no callGone without a prompt")
+var answered = CallDetector(watch: apps)
+check(poll(&answered, 0, 6, ["us.zoom.xos"], recording: false) == [6: [.callStarted("us.zoom.xos")]], "answered: prompt")
+check(poll(&answered, 8, 40, [], recording: true).isEmpty, "answered: no callGone while recording")
 
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("logic tests passed")

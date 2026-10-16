@@ -12,7 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   private var main: WebWindow?, prefsWindow: WebWindow?
   private var status: [String: Any]?, prefs: [String: Any] = [:], recent: [[String: Any]] = []
   private var detector = CallDetector(watch: [])
-  private var keys: [String] = [], activeKeys: [String] = [], keysPaused = false
+  private var keys: [String]?, activeKeys: [String] = [], keysPaused = false
   private var meetingID: String?, busy = false, prompting = false
 
   func applicationDidFinishLaunching(_ notification: Notification) {
@@ -24,9 +24,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     menu.delegate = self
     menu.autoenablesItems = false
     item.menu = menu
-    panel.onClose = { [weak self] in self?.prompting = false }
+    panel.onClose = { [weak self] in self?.updatePanel { self?.prompting = false } }
     server.start()
-    let timer = Timer(timeInterval: 2, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
+    let timer = Timer(timeInterval: 1, target: self, selector: #selector(tick), userInfo: nil, repeats: true)
     RunLoop.main.add(timer, forMode: .common) // .common, so the clock also moves while the menu is open
     tick()
   }
@@ -51,25 +51,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   private func refreshStatus() {
     API.get("/api/status") { [self] s in
       status = s
-      if let s {
-        let id = (s["meeting"] as? [String: Any])?["id"] as? String
-        if let id, id != meetingID { prompting = false; panel.show() }
-        let nowBusy = id != nil || s["writing"] as? Bool == true
-        if busy && !nowBusy && !prompting { panel.close() }
-        meetingID = id
-        busy = nowBusy
-        if prefs["detect"] as? Bool == true {
-          detector.step(active: micBundleIDs(), recording: id != nil, now: ProcessInfo.processInfo.systemUptime).forEach(handle)
-        }
+      guard let s else { server.start(); return updateIcon() } // a server that someone else started may have stopped
+      let id = (s["meeting"] as? [String: Any])?["id"] as? String
+      updatePanel { meetingID = id; busy = id != nil || s["writing"] as? Bool == true }
+      if prefs["detect"] as? Bool == true {
+        detector.step(active: micBundleIDs(), recording: id != nil, now: ProcessInfo.processInfo.systemUptime).forEach(handle)
       }
       updateIcon()
     }
   }
 
+  // The panel opens when a meeting starts. It closes when nothing is left in it: no meeting, no notes being written,
+  // and no open prompt. A user who opened it by hand closes it again. Every change of these three goes through here.
+  private func updatePanel(_ change: () -> Void) {
+    let was = meetingID, needed = busy || prompting
+    change()
+    if meetingID != nil { prompting = false } // the meeting answered the prompt
+    if let id = meetingID, id != was { panel.show() }
+    // Async, because the panel's own web view can be the caller.
+    else if needed && !busy && !prompting { DispatchQueue.main.async { if self.panel.isVisible { self.panel.close() } } }
+  }
+
   private func handle(_ event: DetectEvent) {
     appLog("detected \(event)")
     switch event {
-    case .callStarted(let id): prompting = true; panel.prompt(bundleId: id, name: appName(id))
+    case .callStarted(let id): updatePanel { prompting = true }; panel.prompt(bundleId: id, name: appName(id))
+    case .callGone: updatePanel { prompting = false }
     case .callEnded: panel.ending(seconds: Int(CallDetector.stopDelay - CallDetector.endDelay))
     case .callResumed: panel.ending(seconds: -1)
     case .autoStop: API.post("/api/meeting/stop", [:]) { r in if let e = r?["error"] { appLog("automatic stop failed: \(e)") } }
@@ -79,13 +86,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   private func registerHotkeys() {
     hotkeys.unregisterAll()
     activeKeys = []
-    guard !keysPaused, keys.count == 2 else { return }
-    let all: [(String, String, () -> Void)] = [
-      ("opt+cmd+a", "Open aside", { [weak self] in self?.openMain() }),
-      ("opt+cmd+k", "Ask Claude", { [weak self] in self?.panel.focusAsk() }),
+    if keysPaused { return }
+    let all: [(String, String, String, () -> Void)] = [
+      ("hotkeyOpen", "opt+cmd+a", "Open aside", { [weak self] in self?.openMain() }),
+      ("hotkeyAsk", "opt+cmd+k", "Ask Claude", { [weak self] in self?.panel.focusAsk() }),
     ]
-    for (i, (fallback, name, action)) in all.enumerated() {
-      var text = keys[i]
+    for (i, (key, fallback, name, action)) in all.enumerated() {
+      var text = prefs[key] as? String ?? fallback
       if parseHotkey(text) == nil { appLog("hot key \"\(text)\" for \(name) is not valid, so \(fallback) is used"); text = fallback }
       let ok = hotkeys.register(id: UInt32(i + 1), hotkey: parseHotkey(text)!, action: action)
       appLog(ok ? "hot key \(text) registered for \(name)" : "hot key \(text) for \(name) not registered: macOS refused it (another app may use it)")
@@ -138,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     if let failed = server.failed {
       menu.addItem(.separator())
       add(menu, failed, nil, enabled: false)
+      add(menu, "Restart server", #selector(restartServer))
       add(menu, "Show log", #selector(showLog))
     }
     menu.addItem(.separator())
@@ -213,19 +221,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let body: [String: Any] = ["title": app.map { "\(appName($0)) call" } ?? "Meeting", "claude": sender.representedObject as? String ?? "local",
                                "app": app ?? "", "backend": prefs["backend"] ?? "auto", "keepAudio": prefs["keepAudio"] ?? false]
     API.post("/api/meeting/start", body) { [self] r in
-      if let e = r?["error"] as? String ?? (r == nil ? "aside did not answer." : nil) { alert("The meeting did not start.", e) }
+      if let e = problem(r) { alert("The meeting did not start.", e) }
       refreshStatus()
     }
   }
 
   @objc private func stopMeeting() {
     API.post("/api/meeting/stop", [:]) { [self] r in
-      if let e = r?["error"] as? String { alert("The notes were not written.", e) }
+      if let e = problem(r) { alert("The notes were not written.", e) }
       refreshStatus()
     }
   }
 
+  private func problem(_ answer: [String: Any]?) -> String? { answer == nil ? "aside did not answer." : answer?["error"] as? String }
+
   @objc private func togglePanel() { panel.isVisible ? panel.close() : panel.show() }
+  @objc private func restartServer() { server.restart() }
   @objc private func showLog() { NSWorkspace.shared.open(logURL) }
   @objc private func quit() { NSApp.terminate(nil) }
 
@@ -255,12 +266,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
       let pane = message["pane"] as? String == "screen" ? "ScreenCapture" : "Microphone"
       NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_" + pane)!)
     case "panel": panel.resize(collapsed: message["collapsed"] as? Bool == true)
-    case "dismiss":
-      prompting = false
-      // Async: the panel's web view sent this message, so it is not freed inside its own call.
-      if status?["meeting"] as? [String: Any] == nil { DispatchQueue.main.async { self.panel.close() } }
+    case "dismiss": updatePanel { prompting = false }
     case "keep": detector.keepRecording()
-    case "started": prompting = false; refreshStatus()
+    // The new meeting closes the prompt. Clearing it here would close the panel before the meeting shows.
+    case "started": refreshStatus()
     case "recordingHotkey": keysPaused = message["on"] as? Bool == true; registerHotkeys()
     default: break
     }

@@ -1,7 +1,7 @@
 import CoreAudio
 import Foundation
 
-// The bundle ids of the processes that read from an input device now, without this app. The app's 2 s timer polls
+// The bundle ids of the processes that read from an input device now, without this app. The app's timer polls
 // this: on macOS 26 a listener on the input flag never fires.
 func micBundleIDs() -> [String] {
   let system = AudioObjectID(kAudioObjectSystemObject)

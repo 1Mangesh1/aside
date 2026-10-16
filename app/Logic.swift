@@ -23,11 +23,12 @@ func parseHotkey(_ text: String) -> Hotkey? {
   return Hotkey(keyCode: code, modifiers: mods)
 }
 
-enum DetectEvent: Equatable { case callStarted(String), callEnded, callResumed, autoStop }
+enum DetectEvent: Equatable { case callStarted(String), callEnded, callResumed, autoStop, callGone }
 
 // Fed every poll with the bundle ids that hold the microphone. A watched id also matches its helpers
 // ("com.google.Chrome.helper"). A call is a watched app on the mic for startDelay without a break, and it ends
 // after endDelay with no watched app on the mic. Only a recording that a call armed is stopped when the call ends.
+// A call that ends with its prompt unanswered sends callGone, so the prompt can close.
 struct CallDetector {
   static let startDelay = 5.0, endDelay = 10.0, stopDelay = 120.0
 
@@ -41,6 +42,7 @@ struct CallDetector {
   private var callHandled = false        // the call got its prompt or a recording, so it gets no more prompts
   private var stopMode = StopMode.never  // what the end of the call does to the current recording
   private var countdown = false          // callEnded was sent, and no autoStop, callResumed or Keep recording followed
+  private var prompted = false           // callStarted was sent for the current call, and no recording followed
 
   init(watch: [String]) { self.watch = watch }
 
@@ -48,11 +50,11 @@ struct CallDetector {
 
   mutating func step(active: [String], recording: Bool, now: Double) -> [DetectEvent] {
     var out: [DetectEvent] = []
-    if !recording { stopMode = .never; countdown = false }
+    if !recording { stopMode = .never; countdown = false } else { prompted = false }
     let holders = active.compactMap(watched)
     // Prefer the current app while it still holds the mic, so the order of `active` does not restart the timer.
     if let current = holders.first(where: { $0 == app }) ?? holders.first {
-      if current != app { app = current; since = nil; callHandled = false }
+      if current != app { app = current; since = nil; callHandled = false; prompted = false }
       let start = since ?? now
       since = start
       releasedAt = nil
@@ -60,13 +62,16 @@ struct CallDetector {
         callHandled = true
         if stopMode == .never && now - start >= Self.startDelay { stopMode = .onCallEnd }
         if countdown { countdown = false; out.append(.callResumed) }
-      } else if !callHandled && now - start >= Self.startDelay { callHandled = true; out.append(.callStarted(current)) }
+      } else if !callHandled && now - start >= Self.startDelay { callHandled = true; prompted = true; out.append(.callStarted(current)) }
     } else {
       since = nil
       let start = releasedAt ?? now
       releasedAt = start
       // A gap shorter than endDelay (mute, device change, a missed read) is still the same call.
-      if now - start >= Self.endDelay { app = nil; callHandled = false }
+      if now - start >= Self.endDelay {
+        if prompted { out.append(.callGone) }
+        app = nil; callHandled = false; prompted = false
+      }
       if recording && stopMode == .onCallEnd {
         if !countdown && now - start >= Self.endDelay { countdown = true; out.append(.callEnded) }
         if now - start >= Self.stopDelay { stopMode = .never; countdown = false; out.append(.autoStop) }
