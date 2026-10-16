@@ -45,7 +45,7 @@ test('a meeting cannot start without the Claude choice', async () => {
 
 test('a local-only meeting never calls Claude', async () => {
   const { routes, claude, rec } = setup();
-  await routes['POST /api/meeting/start']({ title: 'Patient follow-up', claude: 'local' });
+  await routes['POST /api/meeting/start']({ title: 'Legal review', claude: 'local' });
   chunk(rec, 1);
   await assert.rejects(routes['POST /api/meeting/ask']({ question: 'What was decided?' }), { code: 403 });
   const out = await routes['POST /api/meeting/stop']();
@@ -72,7 +72,7 @@ test('an allowed meeting redacts before Claude and deletes the audio after the n
 
 test('a question across meetings skips the local-only ones', async () => {
   const { routes, claude, rec } = setup();
-  const local = await routes['POST /api/meeting/start']({ title: 'Patient follow-up', claude: 'local' });
+  const local = await routes['POST /api/meeting/start']({ title: 'Legal review', claude: 'local' });
   chunk(rec, 1);
   await routes['POST /api/meeting/stop']();
   const allowed = await routes['POST /api/meeting/start']({ title: 'Release sync', claude: 'allowed' });
@@ -81,7 +81,7 @@ test('a question across meetings skips the local-only ones', async () => {
   const r = await routes['POST /api/meetings/ask']({ ids: [local.id, allowed.id], question: 'When is the release?' });
   assert.equal(r.skipped, 1);
   const prompt = claude.calls[claude.calls.length - 1].prompt;
-  assert.ok(prompt.includes('Release sync') && !prompt.includes('Patient follow-up'));
+  assert.ok(prompt.includes('Release sync') && !prompt.includes('Legal review'));
 });
 
 test('a second Start during the recorder start-up is refused', async () => {
@@ -89,7 +89,7 @@ test('a second Start during the recorder start-up is refused', async () => {
   const record = () => new Promise((r) => { release = () => r({ stop: async () => {} }); });
   const { routes } = makeRoutes({ root: mkdtempSync(join(tmpdir(), 'aside-')), claude: fakeClaude(), getAsr: () => asr, record });
   const first = routes['POST /api/meeting/start']({ title: 'Release sync', claude: 'allowed' });
-  await assert.rejects(routes['POST /api/meeting/start']({ title: 'Patient follow-up', claude: 'local' }), { code: 409 });
+  await assert.rejects(routes['POST /api/meeting/start']({ title: 'Legal review', claude: 'local' }), { code: 409 });
   release();
   await first;
 });

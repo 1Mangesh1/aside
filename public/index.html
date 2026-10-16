@@ -47,7 +47,7 @@
     </div>
     <fieldset><legend class="quiet">Can text from this call go to Claude?</legend>
       <label><input type="radio" name="claude" value="allowed" autocomplete="off"> Claude allowed</label>
-      <label><input type="radio" name="claude" value="local" autocomplete="off"> Local only (use it for any call with patient data)</label>
+      <label><input type="radio" name="claude" value="local" autocomplete="off"> Local only (no text goes to Claude)</label>
     </fieldset>
     <fieldset><label><input type="checkbox" id="keepAudio"> Keep the audio after the notes</label></fieldset>
     <div class="row"><button class="primary" id="start" disabled>Start recording</button><span class="quiet" id="startHint"></span></div>
@@ -153,7 +153,7 @@ $('start').onclick = async () => {
   $('transcript').innerHTML = WAITING; $('answers').innerHTML = ''; $('cost').textContent = '';
   try {
     await api('/api/meeting/start', { title: $('title').value, app: $('app').value, backend: $('backend').value, claude, keepAudio: $('keepAudio').checked });
-    // The choice must be made again for each call, so a patient call never inherits "Claude allowed".
+    // The choice must be made again for each call, so a private call never inherits "Claude allowed".
     for (const r of document.querySelectorAll('input[name="claude"]')) r.checked = false;
   } catch (e) { showError(e); }
   await poll().catch(showError);
