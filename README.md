@@ -79,6 +79,6 @@ npm test
 
 - Speech recognition: [NVIDIA Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) (CC BY 4.0), in the [mlx-community MLX conversion](https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3), run with [parakeet-mlx](https://github.com/senstella/parakeet-mlx) (Apache-2.0).
 - Claude: [@anthropic-ai/sdk](https://github.com/anthropics/anthropic-sdk-typescript) (MIT).
-- The recorder and the transcript merging come from another project by the same author.
+- The recorder and the transcript merging come from another project of mine, [1Mangesh1](https://github.com/1Mangesh1).
 
 aside uses the MIT license. See `LICENSE`.
