@@ -19,18 +19,28 @@ func parseHotkey(_ text: String) -> Hotkey? {
   guard parts.count >= 2, let last = parts.last, last.count == 1, let code = keyCodes[last.first!] else { return nil }
   var mods: UInt32 = 0
   for p in parts.dropLast() { guard let bit = modifierBits[p] else { return nil }; mods |= bit }
-  return mods & (0x0100 | 0x1000) == 0 || mods.nonzeroBitCount < 2 ? nil : Hotkey(keyCode: code, modifiers: mods)
+  guard mods & (0x0100 | 0x1000) != 0, mods.nonzeroBitCount >= 2 else { return nil }
+  return Hotkey(keyCode: code, modifiers: mods)
 }
 
-enum DetectEvent: Equatable { case callStarted(String), callEnded, autoStop }
+enum DetectEvent: Equatable { case callStarted(String), callEnded, callResumed, autoStop }
 
 // Fed every poll with the bundle ids that hold the microphone. A watched id also matches its helpers
-// ("com.google.Chrome.helper"). Only a recording that saw a call is stopped when the call goes away.
+// ("com.google.Chrome.helper"). A call is a watched app on the mic for startDelay without a break, and it ends
+// after endDelay with no watched app on the mic. Only a recording that a call armed is stopped when the call ends.
 struct CallDetector {
+  static let startDelay = 5.0, endDelay = 10.0, stopDelay = 120.0
+
+  // never: started by hand, or no call yet. onCallEnd: a call armed it. kept: the user chose Keep recording.
+  private enum StopMode { case never, onCallEnd, kept }
+
   var watch: [String]
-  let startDelay = 5.0, endDelay = 10.0, stopDelay = 120.0
-  private var app: String?, since = 0.0, prompted = false
-  private var sawCall = false, manual = false, releasedAt: Double?, endPrompted = false
+  private var app: String?               // the watched app of the current call
+  private var since: Double?             // when `app` took the mic; any gap resets it
+  private var releasedAt: Double?        // when the current gap with no watched app on the mic began
+  private var callHandled = false        // the call got its prompt or a recording, so it gets no more prompts
+  private var stopMode = StopMode.never  // what the end of the call does to the current recording
+  private var countdown = false          // callEnded was sent, and no autoStop, callResumed or Keep recording followed
 
   init(watch: [String]) { self.watch = watch }
 
@@ -38,25 +48,33 @@ struct CallDetector {
 
   mutating func step(active: [String], recording: Bool, now: Double) -> [DetectEvent] {
     var out: [DetectEvent] = []
-    if !recording { sawCall = false; manual = false; endPrompted = false }
-    if let current = active.compactMap(watched).first {
-      if current != app { app = current; since = now; prompted = false }
+    if !recording { stopMode = .never; countdown = false }
+    let holders = active.compactMap(watched)
+    // Prefer the current app while it still holds the mic, so the order of `active` does not restart the timer.
+    if let current = holders.first(where: { $0 == app }) ?? holders.first {
+      if current != app { app = current; since = nil; callHandled = false }
+      let start = since ?? now
+      since = start
       releasedAt = nil
-      if recording { sawCall = !manual; prompted = true; endPrompted = false }
-      else if !prompted && now - since >= startDelay { prompted = true; out.append(.callStarted(current)) }
+      if recording {
+        callHandled = true
+        if stopMode == .never && now - start >= Self.startDelay { stopMode = .onCallEnd }
+        if countdown { countdown = false; out.append(.callResumed) }
+      } else if !callHandled && now - start >= Self.startDelay { callHandled = true; out.append(.callStarted(current)) }
     } else {
-      let r = releasedAt ?? now
-      releasedAt = r
+      since = nil
+      let start = releasedAt ?? now
+      releasedAt = start
       // A gap shorter than endDelay (mute, device change, a missed read) is still the same call.
-      if now - r >= endDelay { app = nil; prompted = false }
-      if recording && sawCall {
-        if !endPrompted && now - r >= endDelay { endPrompted = true; out.append(.callEnded) }
-        if now - r >= stopDelay { sawCall = false; out.append(.autoStop) }
+      if now - start >= Self.endDelay { app = nil; callHandled = false }
+      if recording && stopMode == .onCallEnd {
+        if !countdown && now - start >= Self.endDelay { countdown = true; out.append(.callEnded) }
+        if now - start >= Self.stopDelay { stopMode = .never; countdown = false; out.append(.autoStop) }
       }
     }
     return out
   }
 
-  // The user chose Keep recording: treat the meeting as manual until it stops.
-  mutating func keepRecording() { manual = true; sawCall = false; endPrompted = false }
+  // The user chose Keep recording: the call no longer stops this recording.
+  mutating func keepRecording() { stopMode = .kept; countdown = false }
 }

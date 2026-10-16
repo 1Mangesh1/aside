@@ -3,15 +3,28 @@ import Foundation
 
 var failures = 0
 func check(_ ok: Bool, _ what: String, line: Int = #line) { if !ok { print("FAIL line \(line): \(what)"); failures += 1 } }
+// Steps the detector every 2 s, as the app polls, and returns the events by time.
+func poll(_ d: inout CallDetector, _ from: Int, _ to: Int, _ active: [String], recording: Bool) -> [Int: [DetectEvent]] {
+  var out: [Int: [DetectEvent]] = [:]
+  for t in stride(from: from, through: to, by: 2) {
+    let e = d.step(active: active, recording: recording, now: Double(t))
+    if !e.isEmpty { out[t] = e }
+  }
+  return out
+}
 let apps = ["us.zoom.xos", "com.google.Chrome"]
 
 // Hot keys
-check(parseHotkey("opt+cmd+a")! == Hotkey(keyCode: 0x00, modifiers: 0x0800 | 0x0100), "opt+cmd+a")
-check(parseHotkey(" Cmd + Shift + K ")! == Hotkey(keyCode: 0x28, modifiers: 0x0100 | 0x0200), "spacing and case")
-check(parseHotkey("ctrl+opt+9")! == Hotkey(keyCode: 0x19, modifiers: 0x1000 | 0x0800), "digit")
-check(parseHotkey("shift+a") == nil && parseHotkey("opt+k") == nil && parseHotkey("opt+shift+k") == nil, "needs cmd or ctrl")
-check(parseHotkey("cmd+c") == nil && parseHotkey("ctrl+9") == nil, "needs two modifiers, so it never takes a plain app shortcut")
-check(parseHotkey("cmd+") == nil && parseHotkey("cmd+tab") == nil, "one letter or digit only")
+check(parseHotkey("opt+cmd+a") == Hotkey(keyCode: 0x00, modifiers: 0x0800 | 0x0100), "opt+cmd+a")
+check(parseHotkey(" Cmd + Shift + K ") == Hotkey(keyCode: 0x28, modifiers: 0x0100 | 0x0200), "spacing and case")
+check(parseHotkey("ctrl+opt+9") == Hotkey(keyCode: 0x19, modifiers: 0x1000 | 0x0800), "digit")
+check(parseHotkey("shift+a") == nil, "needs cmd or ctrl: shift")
+check(parseHotkey("opt+k") == nil, "needs cmd or ctrl: opt")
+check(parseHotkey("opt+shift+k") == nil, "needs cmd or ctrl: opt+shift")
+check(parseHotkey("cmd+c") == nil, "needs two modifiers, so it never takes a plain app shortcut")
+check(parseHotkey("ctrl+9") == nil, "needs two modifiers: ctrl")
+check(parseHotkey("cmd+") == nil, "needs a key")
+check(parseHotkey("cmd+tab") == nil, "one letter or digit only")
 
 // Detection: a watched app holds the mic for 5 s before the prompt, and the prompt comes once per call.
 var d = CallDetector(watch: apps)
@@ -28,27 +41,70 @@ var meet = CallDetector(watch: apps)
 _ = meet.step(active: ["com.google.Chrome.helper"], recording: false, now: 0)
 check(meet.step(active: ["com.google.Chrome.helper"], recording: false, now: 5) == [.callStarted("com.google.Chrome")], "helper prefix")
 
-// Recording during a call: release prompts after 10 s, stops at 120 s; the mic coming back cancels.
+// The 5 s hold must be unbroken: two one-poll grabs 8 s apart do not prompt.
+var grabs = CallDetector(watch: apps)
+var grabEvents: [DetectEvent] = []
+for t in stride(from: 0, through: 20, by: 2) {
+  grabEvents += grabs.step(active: t == 0 || t == 8 ? ["us.zoom.xos"] : [], recording: false, now: Double(t))
+}
+check(grabEvents.isEmpty, "two short grabs")
+
+// Two watched apps in a changing order are one call, so the timer keeps running.
+var flip = CallDetector(watch: apps)
+var flipEvents: [Int: [DetectEvent]] = [:]
+for t in stride(from: 0, through: 30, by: 2) {
+  let e = flip.step(active: t % 4 == 0 ? ["us.zoom.xos", "com.google.Chrome"] : ["com.google.Chrome", "us.zoom.xos"], recording: false, now: Double(t))
+  if !e.isEmpty { flipEvents[t] = e }
+}
+check(flipEvents == [6: [.callStarted("us.zoom.xos")]], "order flip: one prompt at 6 s")
+
+// Recording during a call: release prompts after 10 s, stops at 120 s; the mic coming back resumes the call.
 var r = CallDetector(watch: apps)
 _ = r.step(active: ["us.zoom.xos"], recording: true, now: 0)
-check(r.step(active: [], recording: true, now: 1).isEmpty, "grace period")
-check(r.step(active: [], recording: true, now: 11) == [.callEnded], "ended prompt")
-check(r.step(active: ["us.zoom.xos"], recording: true, now: 50).isEmpty, "mic back")
+_ = r.step(active: ["us.zoom.xos"], recording: true, now: 5)
+check(r.step(active: [], recording: true, now: 6).isEmpty, "grace period")
+check(r.step(active: [], recording: true, now: 16) == [.callEnded], "ended prompt")
+check(r.step(active: ["us.zoom.xos"], recording: true, now: 50) == [.callResumed], "mic back")
 check(r.step(active: [], recording: true, now: 60).isEmpty, "new release starts over")
 check(r.step(active: [], recording: true, now: 70) == [.callEnded], "ended again")
 check(r.step(active: [], recording: true, now: 180) == [.autoStop], "auto stop at 120 s")
 
+// Arming: a call stops a recording only after a watched app held the mic for 5 s without a break.
+var blip = CallDetector(watch: apps)
+check(poll(&blip, 0, 18, [], recording: true).isEmpty, "hand-started")
+check(blip.step(active: ["com.google.Chrome.helper"], recording: true, now: 20).isEmpty, "one-poll grab by a Chrome tab")
+check(poll(&blip, 22, 200, [], recording: true).isEmpty, "the grab does not arm auto stop")
+var held = CallDetector(watch: apps)
+check(poll(&held, 0, 28, ["us.zoom.xos"], recording: true).isEmpty, "Zoom held from 0")
+check(poll(&held, 30, 150, [], recording: true) == [40: [.callEnded], 150: [.autoStop]], "release at 30: ended at 40, auto stop at 150")
+check(poll(&held, 152, 400, [], recording: true).isEmpty, "auto stop only once")
+var fromPrompt = CallDetector(watch: apps)
+check(poll(&fromPrompt, 0, 6, ["us.zoom.xos"], recording: false) == [6: [.callStarted("us.zoom.xos")]], "prompt")
+check(fromPrompt.step(active: ["us.zoom.xos"], recording: true, now: 8).isEmpty, "recording from the prompt")
+check(poll(&fromPrompt, 10, 20, [], recording: true) == [20: [.callEnded]], "armed at once: the app already held the mic 5 s")
+
+// Resume: the mic coming back during the end countdown sends callResumed once, and only after callEnded.
+var res = CallDetector(watch: apps)
+check(poll(&res, 0, 6, ["us.zoom.xos"], recording: true).isEmpty, "armed")
+check(poll(&res, 8, 14, [], recording: true).isEmpty, "short release: no countdown")
+check(res.step(active: ["us.zoom.xos"], recording: true, now: 16).isEmpty, "no callResumed without callEnded")
+check(poll(&res, 18, 28, [], recording: true) == [28: [.callEnded]], "countdown")
+check(res.step(active: ["us.zoom.xos"], recording: true, now: 30) == [.callResumed], "resumed")
+check(res.step(active: ["us.zoom.xos"], recording: true, now: 32).isEmpty, "resumed only once")
+
 // Keep recording after a call ended: the meeting becomes manual and detection never stops it.
 var keep = CallDetector(watch: apps)
 _ = keep.step(active: ["us.zoom.xos"], recording: true, now: 0)
-_ = keep.step(active: [], recording: true, now: 1)
-check(keep.step(active: [], recording: true, now: 11) == [.callEnded], "ended")
+_ = keep.step(active: ["us.zoom.xos"], recording: true, now: 5)
+_ = keep.step(active: [], recording: true, now: 6)
+check(keep.step(active: [], recording: true, now: 16) == [.callEnded], "ended")
 keep.keepRecording()
 check(keep.step(active: [], recording: true, now: 200).isEmpty, "kept: no auto stop")
 
 // A recording started by hand, with no call, is never stopped by detection.
 var hand = CallDetector(watch: apps)
-check(hand.step(active: [], recording: true, now: 0).isEmpty && hand.step(active: [], recording: true, now: 500).isEmpty, "manual recording kept")
+check(hand.step(active: [], recording: true, now: 0).isEmpty, "manual recording")
+check(hand.step(active: [], recording: true, now: 500).isEmpty, "manual recording kept")
 
 // A recording started by hand before the call, then stopped while the call goes on: no prompt to record that call.
 var early = CallDetector(watch: apps)
@@ -67,20 +123,21 @@ for t in 11...20 { seen += gap.step(active: ["us.zoom.xos"], recording: false, n
 check(seen.isEmpty, "short gap: same call, no second prompt")
 for t in 21...31 { seen += gap.step(active: [], recording: false, now: Double(t)) }
 for t in 40...44 { seen += gap.step(active: ["us.zoom.xos"], recording: false, now: Double(t)) }
-check(seen.isEmpty && gap.step(active: ["us.zoom.xos"], recording: false, now: 45) == [.callStarted("us.zoom.xos")], "10 s gap: a new call prompts again")
+check(seen.isEmpty, "10 s gap: the call ended without a prompt")
+check(gap.step(active: ["us.zoom.xos"], recording: false, now: 45) == [.callStarted("us.zoom.xos")], "10 s gap: a new call prompts again")
 
-// Keep recording stays manual until the recording stops, even if a watched app takes the mic again.
+// Keep recording stays manual until the recording stops, even if a watched app holds the mic again.
 var man = CallDetector(watch: apps)
 _ = man.step(active: ["us.zoom.xos"], recording: true, now: 0)
-_ = man.step(active: [], recording: true, now: 1)
-check(man.step(active: [], recording: true, now: 11) == [.callEnded], "manual: ended")
+_ = man.step(active: ["us.zoom.xos"], recording: true, now: 5)
+_ = man.step(active: [], recording: true, now: 6)
+check(man.step(active: [], recording: true, now: 16) == [.callEnded], "manual: ended")
 man.keepRecording()
-check(man.step(active: ["us.zoom.xos"], recording: true, now: 20).isEmpty && man.step(active: [], recording: true, now: 30).isEmpty, "manual: mic back and released")
-check(man.step(active: [], recording: true, now: 40).isEmpty && man.step(active: [], recording: true, now: 150).isEmpty, "manual: no end prompt, no auto stop")
-_ = man.step(active: [], recording: false, now: 200)
-_ = man.step(active: ["us.zoom.xos"], recording: true, now: 300)
-_ = man.step(active: [], recording: true, now: 301)
-check(man.step(active: [], recording: true, now: 311) == [.callEnded], "manual mode ends with the recording")
+check(poll(&man, 20, 28, ["us.zoom.xos"], recording: true).isEmpty, "manual: mic back for 8 s")
+check(poll(&man, 30, 200, [], recording: true).isEmpty, "manual: no end prompt, no auto stop")
+_ = man.step(active: [], recording: false, now: 202)
+check(poll(&man, 300, 306, ["us.zoom.xos"], recording: true).isEmpty, "new recording: call held 6 s")
+check(poll(&man, 308, 318, [], recording: true) == [318: [.callEnded]], "manual mode ends with the recording")
 
 if failures > 0 { print("\(failures) failed"); exit(1) }
 print("logic tests passed")
