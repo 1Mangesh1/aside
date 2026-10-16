@@ -227,7 +227,10 @@ fetch('/api/prefs').then((r) => r.json()).then((p) => { $('backend').value = p.b
 // open page. The first one waits for the sections above the notes, so they do not push the notes out of view.
 async function openLinked() {
   const id = location.hash.slice(1);
-  if (/^[\w-]+$/.test(id)) { await openMeeting(id); $('meetingView').scrollIntoView(); }
+  if (!/^[\w-]+$/.test(id)) return;
+  await openMeeting(id);
+  $('meetingView').scrollIntoView();
+  history.replaceState(null, '', location.pathname); // so the next link to this same meeting is a hash change too
 }
 Promise.all([poll().catch(showError), loadMeetings().catch(showError)]).then(openLinked).catch(showError);
 addEventListener('hashchange', () => openLinked().catch(showError));

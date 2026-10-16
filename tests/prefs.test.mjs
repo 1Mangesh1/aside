@@ -36,7 +36,17 @@ test('savePrefs refuses a body that is not an object', () => {
   assert.equal(existsSync(join(root, 'prefs.json')), false, 'nothing was written');
 });
 
-test('savePrefs takes any Command or Control hot key but refuses two equal ones', () => {
+test('a hot key needs two different modifiers, one of them Command or Control', () => {
+  const root = dir();
+  for (const bad of ['cmd+c', 'ctrl+9', 'cmd+cmd+c']) {
+    assert.throws(() => savePrefs(root, { hotkeyOpen: bad }), { code: 400 }, bad);
+  }
+  for (const good of ['opt+cmd+a', 'shift+ctrl+9', 'ctrl+opt+shift+cmd+z']) {
+    assert.equal(savePrefs(root, { hotkeyOpen: good }).hotkeyOpen, good);
+  }
+});
+
+test('savePrefs takes a valid hot key but refuses two equal ones', () => {
   const root = dir();
   savePrefs(root, { hotkeyOpen: 'shift+ctrl+9' });
   assert.equal(loadPrefs(root).hotkeyOpen, 'shift+ctrl+9');

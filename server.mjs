@@ -250,9 +250,10 @@ export function serve() {
     try {
       const page = req.method === 'GET' && PAGES.get(url.pathname);
       if (page) {
+        const html = readFileSync(join(ROOT, 'public', page)); // before writeHead, so a missing file still gets the JSON error
         // No framing: another site's page cannot overlay this one and trick a click on Start.
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'x-frame-options': 'DENY', 'content-security-policy': "frame-ancestors 'none'" });
-        return res.end(readFileSync(join(ROOT, 'public', page)));
+        return res.end(html);
       }
       if (req.method === 'GET' && url.pathname === '/api/status') return send(res, 200, status());
       if (req.method === 'GET' && url.pathname === '/api/events') {
