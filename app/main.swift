@@ -44,7 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
   }
 
   @objc private func refreshStatus() {
-    API.get("/api/status") { [self] s in
+    API.get("/api/status") { [self] answer in
+      let s = answer?["error"] == nil ? answer : nil // an error answer counts as no answer for this tick
       // A server from before the menu-bar app has no `writing`. The app does not drive it.
       if let s, s["writing"] == nil {
         if server.failed == nil {
