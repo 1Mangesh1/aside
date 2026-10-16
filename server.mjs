@@ -196,6 +196,15 @@ export function makeRoutes({ base, claude, getAsr, wantAsr = async () => {}, rec
     runPending: () => live?.transcriber.run(),
     busy: () => !!live || finishing.size > 0,
     writing: () => finishing.size > 0,
+    // On SIGTERM: the recorder closes its last chunk and the meeting stays unfinished, so "Finish it" writes the notes later.
+    shutdown: async () => {
+      const m = live;
+      if (!m) return;
+      live = null;
+      await m.child.stop();
+      m.meta.stoppedAt = Date.now();
+      saveMeta(m.dir, m.meta);
+    },
   };
 }
 
@@ -218,6 +227,7 @@ export function serve() {
   const app = makeRoutes({ base, claude, getAsr: () => asrMgr.get(), wantAsr, redactions: loadRedactions(ROOT), emit, record: (out, name, onChunk) => startRecorder(recorder, out, name, onChunk) });
   // A restarted speech worker picks up the chunks that waited while it was down.
   setInterval(() => { asrMgr.tick(app.busy()); app.runPending(); }, 5000).unref();
+  process.once('SIGTERM', async () => { await app.shutdown(); process.exit(0); });
 
   const status = () => {
     const asr = asrMgr.get(), m = modelState(dir);

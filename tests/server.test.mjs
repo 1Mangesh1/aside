@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, existsSync, readFileSync, chmodSync } from 
 import { join, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { allowedOrigin, makeRoutes, startRecorder } from '../server.mjs';
-import { newMeeting } from '../lib/meeting.mjs';
+import { newMeeting, loadMeta } from '../lib/meeting.mjs';
 
 const fakeClaude = () => {
   const calls = [];
@@ -14,7 +14,7 @@ const asr = { ready: true, transcribe: async (path) => ({ sentences: path.includ
 function setup({ claude = fakeClaude(), emit } = {}) {
   const base = join(mkdtempSync(join(tmpdir(), 'aside-')), 'meetings');
   const rec = {};
-  const record = async (dir, app, onChunk) => { Object.assign(rec, { dir, onChunk }); return { stop: async () => {} }; };
+  const record = async (dir, app, onChunk) => { Object.assign(rec, { dir, onChunk }); return { stop: async () => { rec.stops = (rec.stops ?? 0) + 1; } }; };
   const app = makeRoutes({ base, claude, getAsr: () => asr, record, emit, redactions: [/\+?91[\s-]?\d{5}\s?\d{5}/i] });
   return { base, claude, rec, app, routes: app.routes };
 }
@@ -177,4 +177,20 @@ test('stop() returns for a recorder that already exited by itself, also after a 
     await r.closed;
     await r.stop();
   }
+});
+
+test('shutdown stops the recorder and leaves the meeting for "Finish it", and a second shutdown does nothing', async () => {
+  const { routes, rec, app, base } = setup();
+  const { id } = await routes['POST /api/meeting/start']({ title: 'Release sync', claude: 'allowed' });
+  chunk(rec, 1);
+  await app.shutdown();
+  assert.equal(rec.stops, 1);
+  const meta = loadMeta(join(base, id));
+  assert.ok(meta.stoppedAt >= meta.startedAt, 'stoppedAt is set');
+  assert.equal(meta.done, false);
+  assert.equal(app.current(), null);
+  assert.deepEqual((await routes['GET /api/meetings']()).unfinished, [id]);
+  await app.shutdown();
+  assert.equal(rec.stops, 1);
+  assert.match((await routes['POST /api/meetings/finish']({ id })).markdown, /Sure, Friday works\./);
 });
