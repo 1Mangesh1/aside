@@ -163,6 +163,7 @@ export function makeRoutes({ base, claude, getAsr, wantAsr = async () => {}, rec
       if (meta.done) throw fail('This meeting is already finished.', 400);
       finishing.add(id);
       try {
+        emit({ type: 'state' });
         adoptChunks(dir, meta);
         saveMeta(dir, meta);
         const m = { dir, meta };

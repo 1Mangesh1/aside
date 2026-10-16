@@ -155,7 +155,7 @@ test('Stop and "Finish it" send a last state event once the notes are written or
   dir = newMeeting(s.base, { title: 'Legal review', claude: 'local', keepAudio: false, backend: 'auto', app: '' }).dir;
   states.length = 0;
   await s.routes['POST /api/meetings/finish']({ id: basename(dir) });
-  assert.deepEqual(states, [{ writing: false, notes: true }]);
+  assert.deepEqual(states, [{ writing: true, notes: false }, { writing: false, notes: true }]);
 
   const f = setup({ emit, claude: { status: () => ({}), ask: async () => { throw new Error('Credit used up.'); } } });
   app = f.app;
