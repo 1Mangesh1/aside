@@ -5,3 +5,4 @@ aside.config.json
 .claude-headless/
 .DS_Store
 docs/plans/
+prefs.json

@@ -13,6 +13,7 @@ import { transcriptText, notesFile, NOTES_SYSTEM, COMPANION_SYSTEM, ASK_MEETINGS
 import { loadRedactions, redact } from './lib/redact.mjs';
 import { newMeeting, loadMeta, saveMeta, loadTranscript, cleanupAudio, adoptChunks, unfinishedMeetings, listMeetings } from './lib/meeting.mjs';
 import { makeTranscriber } from './lib/live.mjs';
+import { loadPrefs, savePrefs, meetingsBase } from './lib/prefs.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PORT = 4318;
@@ -193,7 +194,8 @@ export function serve() {
   const claude = makeClaude({ root: ROOT });
   const dir = modelDir();
   const recorder = join(ROOT, 'bin/aside-capture');
-  const base = join(ROOT, 'meetings');
+  let prefs = loadPrefs(ROOT);
+  const base = meetingsBase(ROOT, prefs);
   // The worker loads (and, if missing, downloads) the model, so start it only when the model is already here.
   let asr = modelState(dir).downloaded ? startAsr(join(ROOT, 'asr_worker.py')) : null;
   const ensureAsr = () => { if (modelState(dir).downloaded && (!asr || asr.exited)) asr = startAsr(join(ROOT, 'asr_worker.py')); };
@@ -223,6 +225,8 @@ export function serve() {
       deleteModel(dir);
       return status();
     },
+    'GET /api/prefs': async () => prefs,
+    'POST /api/prefs': async (d) => { prefs = savePrefs(ROOT, d); emit({ type: 'prefs' }); return prefs; },
   };
 
   createServer(async (req, res) => {
