@@ -51,8 +51,7 @@ export function startRecorder(bin, out, app, onChunk) {
   });
 }
 
-export function makeRoutes({ root, claude, getAsr, record, redactions = [], emit = () => {} }) {
-  const base = join(root, 'meetings');
+export function makeRoutes({ base, claude, getAsr, record, redactions = [], emit = () => {} }) {
   let live = null; // { dir, meta, child, transcriber }
   let starting = false; // a second Start during the recorder's start-up would run two recorders
   const finishing = new Set(); // meeting ids being finished, so a second tab cannot finish one twice
@@ -96,7 +95,7 @@ export function makeRoutes({ root, claude, getAsr, record, redactions = [], emit
       if (!['allowed', 'local'].includes(d.claude)) throw fail('Choose "Claude allowed" or "local only" first.', 400);
       starting = true;
       try {
-        const m = newMeeting(root, { title: String(d.title || '').trim() || 'Meeting', claude: d.claude, keepAudio: !!d.keepAudio, backend: backendOf(d.backend), app: String(d.app || '').trim() });
+        const m = newMeeting(base, { title: String(d.title || '').trim() || 'Meeting', claude: d.claude, keepAudio: !!d.keepAudio, backend: backendOf(d.backend), app: String(d.app || '').trim() });
         const id = basename(m.dir);
         m.transcriber = makeTranscriber({ meeting: m, getAsr, onLines: (lines) => emit({ type: 'lines', id, lines }) });
         try {
@@ -179,7 +178,7 @@ export function makeRoutes({ root, claude, getAsr, record, redactions = [], emit
       const r = await claude.ask(backendOf(d.backend), { system: ASK_MEETINGS_SYSTEM, prompt: `${blocks.join('\n\n')}\n\nQuestion: ${question}`, effort: 'medium' });
       return { text: r.text, cost: r.cost, skipped: picked.length - allowed.length };
     },
-    'GET /api/meetings': async () => ({ meetings: listMeetings(root), unfinished: unfinishedMeetings(root).filter((id) => !finishing.has(id) && (!live || id !== basename(live.dir))) }),
+    'GET /api/meetings': async () => ({ meetings: listMeetings(base), unfinished: unfinishedMeetings(base).filter((id) => !finishing.has(id) && (!live || id !== basename(live.dir))) }),
   };
 
   return {
@@ -194,12 +193,13 @@ export function serve() {
   const claude = makeClaude({ root: ROOT });
   const dir = modelDir();
   const recorder = join(ROOT, 'bin/aside-capture');
+  const base = join(ROOT, 'meetings');
   // The worker loads (and, if missing, downloads) the model, so start it only when the model is already here.
   let asr = modelState(dir).downloaded ? startAsr(join(ROOT, 'asr_worker.py')) : null;
   const ensureAsr = () => { if (modelState(dir).downloaded && (!asr || asr.exited)) asr = startAsr(join(ROOT, 'asr_worker.py')); };
   const clients = new Set();
   const emit = (event) => { for (const res of clients) res.write(`data: ${JSON.stringify(event)}\n\n`); };
-  const app = makeRoutes({ root: ROOT, claude, getAsr: () => asr, redactions: loadRedactions(ROOT), emit, record: (out, name, onChunk) => startRecorder(recorder, out, name, onChunk) });
+  const app = makeRoutes({ base, claude, getAsr: () => asr, redactions: loadRedactions(ROOT), emit, record: (out, name, onChunk) => startRecorder(recorder, out, name, onChunk) });
   // A restarted speech worker picks up the chunks that waited while it was down.
   setInterval(() => { ensureAsr(); app.runPending(); }, 5000).unref();
 
@@ -246,7 +246,7 @@ export function serve() {
       }
       if (req.method === 'GET' && url.pathname.startsWith('/api/meetings/')) {
         const id = decodeURIComponent(url.pathname.slice('/api/meetings/'.length));
-        const mdir = join(ROOT, 'meetings', id);
+        const mdir = join(base, id);
         if (!/^[\w-]+$/.test(id) || !existsSync(join(mdir, 'meeting.json'))) return send(res, 404, { error: 'not found' });
         const read = (f) => (existsSync(join(mdir, f)) ? readFileSync(join(mdir, f), 'utf8') : '');
         return send(res, 200, { id, meta: loadMeta(mdir), notes: read('notes.md'), companion: read('companion.md') });

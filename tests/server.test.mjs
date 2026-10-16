@@ -12,11 +12,11 @@ const fakeClaude = () => {
 };
 const asr = { ready: true, transcribe: async (path) => ({ sentences: path.includes('them-') ? [{ start: 0.5, end: 3, text: 'Call me on +91 98765 43210 about the release.' }] : [{ start: 4, end: 5, text: 'Sure, Friday works.' }] }) };
 function setup({ claude = fakeClaude(), emit } = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'aside-'));
+  const base = join(mkdtempSync(join(tmpdir(), 'aside-')), 'meetings');
   const rec = {};
   const record = async (dir, app, onChunk) => { Object.assign(rec, { dir, onChunk }); return { stop: async () => {} }; };
-  const app = makeRoutes({ root, claude, getAsr: () => asr, record, emit, redactions: [/\+?91[\s-]?\d{5}\s?\d{5}/i] });
-  return { root, claude, rec, app, routes: app.routes };
+  const app = makeRoutes({ base, claude, getAsr: () => asr, record, emit, redactions: [/\+?91[\s-]?\d{5}\s?\d{5}/i] });
+  return { base, claude, rec, app, routes: app.routes };
 }
 // A Claude double that holds every answer until open() is called.
 const gatedClaude = () => {
@@ -87,7 +87,7 @@ test('a question across meetings skips the local-only ones', async () => {
 test('a second Start during the recorder start-up is refused', async () => {
   let release;
   const record = () => new Promise((r) => { release = () => r({ stop: async () => {} }); });
-  const { routes } = makeRoutes({ root: mkdtempSync(join(tmpdir(), 'aside-')), claude: fakeClaude(), getAsr: () => asr, record });
+  const { routes } = makeRoutes({ base: mkdtempSync(join(tmpdir(), 'aside-')), claude: fakeClaude(), getAsr: () => asr, record });
   const first = routes['POST /api/meeting/start']({ title: 'Release sync', claude: 'allowed' });
   await assert.rejects(routes['POST /api/meeting/start']({ title: 'Legal review', claude: 'local' }), { code: 409 });
   release();
@@ -120,8 +120,8 @@ test('while Stop writes the notes, the meeting is not offered as unfinished and 
 });
 
 test('"Finish it" adopts a chunk that the recorder closed but never announced', async () => {
-  const { routes, root } = setup();
-  const { dir } = newMeeting(root, { title: 'Release sync', claude: 'allowed', keepAudio: false, backend: 'auto', app: '' });
+  const { routes, base } = setup();
+  const { dir } = newMeeting(base, { title: 'Release sync', claude: 'allowed', keepAudio: false, backend: 'auto', app: '' });
   for (const t of ['me', 'them']) writeFileSync(join(dir, `${t}-0001.m4a`), Buffer.alloc(16));
   const out = await routes['POST /api/meetings/finish']({ id: basename(dir) });
   assert.match(out.markdown, /Sure, Friday works\./);
