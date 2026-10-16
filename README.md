@@ -43,17 +43,19 @@ The menu has these items:
 - Show panel: shows the floating panel with the live transcript and the question box.
 - Recent meetings: opens the notes of one of the 5 newest finished meetings.
 - Preferences…: opens the preferences window, with the hot keys, the meeting detection, the meeting defaults, and the login item.
-- Quit aside: stops the server that the app started.
+- Quit aside: stops the server that the app started. If a meeting records, aside stops the recording first. The meeting stays unfinished, and "Finish it" writes the notes later.
 
-If the server fails, the menu also shows "Restart server" and "Show log".
+If the server fails, the menu also shows "Restart server" and "Show log". `./aside.sh stop` stops any server on port 4318, also the server that the app started. The app then starts its server again.
 
-Two hot keys work in every app. ⌥⌘A opens aside. ⌥⌘K shows the panel and puts the cursor in the question box. To change a hot key, open Preferences. A hot key needs two modifier keys, and one of them must be Command or Control.
+Two hot keys work in every app. ⌥⌘A opens aside. During a "Claude allowed" meeting, ⌥⌘K shows the panel and puts the cursor in the question box. To change a hot key, open Preferences. A hot key needs two modifier keys, and one of them must be Command or Control.
 
 When an app in the Meeting detection list holds the microphone for 5 seconds, the floating panel asks "Record this meeting?". Choose "Local only", "Claude allowed", or "Not now". If you do not answer and the call ends, the question closes. To turn detection off or to change the list of apps, open Preferences.
 
 10 seconds after the call app releases the microphone, the panel starts a countdown. aside stops the recording and writes the notes 2 minutes after the release, unless you press "Keep recording". aside stops a recording by itself only when a listed app held the microphone during the recording.
 
-The speech model loads when a meeting starts, and it unloads 10 minutes after the last meeting. To start aside each time that you log in, turn on the login item in Preferences.
+Until you download the speech model, aside does not ask to record, and "Start meeting" is off. The speech model loads when a meeting starts, and it unloads 10 minutes after the last meeting. If uv is missing, the speech worker cannot start. The page then shows the error, and the panel shows it during a meeting.
+
+To start aside each time that you log in, turn on the login item in Preferences.
 
 To use aside only in the browser, without the menu-bar app, start it with `./aside.sh` as in "Install and start".
 
@@ -73,7 +75,7 @@ In the Meetings list, tick one or more meetings and type a question. Claude answ
 
 ## Files
 
-Each meeting is a folder in `meetings/`, and git ignores that folder.
+Each meeting is a folder in the meetings folder. By default, that is `meetings/`, and git ignores it. To use another folder, set "Meetings folder" in Preferences. The change takes effect the next time aside starts. Older meetings, also unfinished ones, stay in the old folder.
 
 - `meeting.json`: the settings and the progress.
 - `transcript.json`: the transcript, with a start and an end time for each line.
