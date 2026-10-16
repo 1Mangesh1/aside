@@ -3,7 +3,7 @@
 // every ASIDE_CHUNK_SECONDS (default 15), all aligned to one start time. Stdout: "recording" once capture runs,
 // "chunk <n> <them start> <me start>" when both files of chunk n are complete (start offsets in seconds), "stopped".
 // With [app] (an app name such as "Microsoft Teams", or part of a bundle id), only that app's audio is recorded.
-// Needs Screen Recording and Microphone permission for the app that launches it (the terminal).
+// Needs Screen Recording and Microphone permission for the app that starts aside (aside, or the terminal for ./aside.sh).
 import AVFoundation
 import CoreMedia
 import Foundation
@@ -222,7 +222,7 @@ Task {
     print("recording")
     fflush(stdout)
   } catch {
-    fail("Could not start capture: \(error.localizedDescription). Check Screen Recording and Microphone permission for your terminal in System Settings > Privacy & Security.")
+    fail("Could not start capture: \(error.localizedDescription). Check Screen Recording and Microphone permission for the app that starts aside (aside, or your terminal for ./aside.sh) in System Settings > Privacy & Security.")
   }
 }
 dispatchMain()
