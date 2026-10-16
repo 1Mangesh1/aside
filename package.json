@@ -1,13 +1,15 @@
 {
   "name": "aside",
   "private": true,
+  "version": "0.1.0",
   "type": "module",
   "description": "A local meeting companion for a Mac. The call is transcribed on this Mac with Parakeet; Claude answers questions during the call and writes the notes after it.",
   "scripts": {
     "start": "node server.mjs",
     "build:capture": "mkdir -p bin && swiftc -O -swift-version 5 capture/capture.swift -o bin/aside-capture",
     "test": "node --test \"tests/*.test.mjs\" && npm run -s test:app",
-    "test:app": "mkdir -p bin && swiftc -swift-version 5 app/Logic.swift app/logic-tests/main.swift -o bin/logic-tests && bin/logic-tests"
+    "test:app": "mkdir -p bin && swiftc -swift-version 5 app/Logic.swift app/logic-tests/main.swift -o bin/logic-tests && bin/logic-tests",
+    "build:app": "sh app/build.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.131.0"
