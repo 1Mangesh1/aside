@@ -80,7 +80,7 @@ export function makeRoutes({ base, claude, getAsr, wantAsr = async () => {}, rec
   // tries here, so one bad file cannot keep the meeting from finishing.
   async function finish(dir, meta, transcriber) {
     for (let i = 0; !(await transcriber.run()); i++) {
-      if (!getAsr()?.ready) throw fail('The speech model is not loaded, so the rest of the call cannot be transcribed yet. Load it, then try again.', 503);
+      if (!getAsr()?.ready) throw fail('The speech model is not loaded, so the rest of the call cannot be transcribed yet. Press "Finish it" to try again.', 503);
       if (i > 3 * meta.chunks.length) throw fail('Some chunks could not be transcribed. Press "Finish it" to try again.', 500);
     }
     await writeNotes(dir, meta);
@@ -203,14 +203,11 @@ export function serve() {
   const base = meetingsBase(ROOT, prefs);
   // The worker loads (and, if missing, downloads) the model, so start it only when the model is already here.
   const asrMgr = makeAsrManager({ start: () => startAsr(join(ROOT, 'asr_worker.py')), downloaded: () => modelState(dir).downloaded });
-  // Resolves once the worker is ready, has exited, is impossible (no model), or after 2 minutes; finish() then
-  // reports a worker that is still down.
+  // Waits on one worker until it is ready or has exited, or for 2 minutes, and not at all without a model; finish()
+  // then reports a worker that is still down. A worker that failed is started again by the 5 s tick, not here.
   const wantAsr = async () => {
-    for (let i = 0; i < 600; i++) {
-      const a = asrMgr.want();
-      if (!a || a.ready || a.exited) return;
-      await new Promise((r) => setTimeout(r, 200));
-    }
+    const a = asrMgr.want();
+    for (let i = 0; a && !a.ready && !a.exited && i < 600; i++) await new Promise((r) => setTimeout(r, 200));
   };
   const clients = new Set();
   const emit = (event) => { for (const res of clients) res.write(`data: ${JSON.stringify(event)}\n\n`); };
@@ -222,6 +219,7 @@ export function serve() {
     const asr = asrMgr.get(), m = modelState(dir);
     return {
       asrReady: !!asr?.ready,
+      asrError: asr?.error,
       model: { ...m, name: ASR_MODEL, expectedBytes: MODEL_BYTES, downloading: !!asr && !asr.ready && !asr.exited },
       claude: claude.status(),
       recorder: existsSync(recorder),

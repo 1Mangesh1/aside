@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { modelDir, modelState, deleteModel, makeAsrManager } from '../lib/asr.mjs';
+import { modelDir, modelState, deleteModel, makeAsrManager, startAsr } from '../lib/asr.mjs';
 
 test('modelDir follows the Hugging Face cache rules', () => {
   const name = 'models--mlx-community--parakeet-tdt-0.6b-v3';
@@ -68,4 +68,19 @@ test('makeAsrManager keeps a worker that is still downloading or loading the mod
   assert.equal(w.exited, false, 'the idle time counts from the end of the load');
   t += 2_000; m.tick(false);
   assert.equal(w.exited, true);
+});
+
+test('startAsr survives a missing uv: the worker counts as stopped and refuses requests', async () => {
+  const path = process.env.PATH;
+  process.env.PATH = '/nonexistent';
+  try {
+    const a = startAsr('asr_worker.py');
+    await new Promise((r) => setImmediate(r));
+    assert.equal(a.exited, true);
+    assert.equal(a.ready, false);
+    assert.equal(a.error, 'spawn uv ENOENT');
+    await assert.rejects(a.transcribe('/tmp/aside-0001-me.wav'), /speech worker stopped/);
+  } finally {
+    process.env.PATH = path;
+  }
 });

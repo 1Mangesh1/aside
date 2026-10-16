@@ -106,7 +106,8 @@ async function poll() {
   S = await (await fetch('/api/status')).json();
   const m = S.model, size = gb(m.expectedBytes);
   $('start').disabled = !S.recorder || !m.downloaded;
-  $('startHint').textContent = !S.recorder ? 'Build the recorder first: npm run build:capture' : !m.downloaded ? 'Download the speech model first.' : '';
+  $('startHint').textContent = !S.recorder ? 'Build the recorder first: npm run build:capture' : !m.downloaded ? 'Download the speech model first.'
+    : S.asrError ? `The speech worker could not start (${S.asrError}). Install uv, or check the PATH aside starts with.` : '';
   $('dlMeter').classList.toggle('hidden', !m.downloading);
   $('download').classList.toggle('hidden', m.downloaded || m.downloading);
   $('delete').classList.toggle('hidden', !(m.downloaded || m.bytes > 0) || m.downloading);
