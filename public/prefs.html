@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>aside preferences</title>
+<style>
+  /* The color tokens are defined in index.html. Keep these two lines the same as there. */
+  :root { --bg:#f7f6f3; --panel:#fff; --ink:#1d1d1f; --quiet:#66666c; --line:#e3e1dc; --accent:#c4501b; --ok:#2f7d4f; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151515; --panel:#1e1e1e; --ink:#ecebe8; --quiet:#a3a3a8; --line:#2f2f2f; --accent:#e0703e; --ok:#5fb37f; --bad:#ef6b62; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { padding: 0 16px 12px; }
+  section { padding-bottom: 10px; border-bottom: 1px solid var(--line); } section:last-of-type { border: 0; }
+  h2 { font-size: 13px; margin: 12px 0 4px; }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 32px; }
+  .name { flex: none; width: 112px; } .grow { flex: 1; min-width: 0; }
+  button, select, input { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+  button { min-height: 26px; padding: 0 10px; cursor: pointer; } button:disabled { opacity: .45; cursor: default; }
+  select, input:not([type=checkbox]) { height: 28px; padding: 0 8px; } input[type=checkbox] { margin: 0 6px 0 0; vertical-align: -2px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  kbd { min-width: 64px; font: 600 15px/1 -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: 1px; }
+  fieldset { border: 0; padding: 0; margin: 0; min-width: 0; } fieldset:disabled { opacity: .45; } legend { padding: 0; }
+  ul { list-style: none; padding: 0; margin: 2px 0 4px; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 20px; }
+  li { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 28px; } li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .quiet { color: var(--quiet); } .ok, .msg { color: var(--ok); } .err, .msg.err { color: var(--bad); }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <section><h2>Hot keys</h2>
+    <div class="row"><span class="name" id="n-hotkeyOpen">Open aside</span><kbd id="k-hotkeyOpen"></kbd><button id="b-hotkeyOpen" data-hotkey="hotkeyOpen" aria-labelledby="b-hotkeyOpen n-hotkeyOpen">Change</button><span class="msg" id="m-hotkeyOpen" aria-live="polite"></span></div>
+    <div class="row"><span class="name" id="n-hotkeyAsk">Ask Claude</span><kbd id="k-hotkeyAsk"></kbd><button id="b-hotkeyAsk" data-hotkey="hotkeyAsk" aria-labelledby="b-hotkeyAsk n-hotkeyAsk">Change</button><span class="msg" id="m-hotkeyAsk" aria-live="polite"></span></div>
+  </section>
+
+  <section><h2>Meeting detection</h2>
+    <div class="row"><label><input type="checkbox" role="switch" id="detect">Ask to record when one of these apps uses the microphone</label><span class="msg" id="m-detect" aria-live="polite"></span></div>
+    <fieldset id="appsBox"><legend class="quiet">Apps</legend>
+      <ul id="apps"></ul>
+      <form class="row" id="addForm"><label class="name" for="addApp">Add a bundle id</label><input class="grow" id="addApp" placeholder="com.example.app" spellcheck="false" autocapitalize="off"><button>Add</button></form>
+      <div class="msg" id="m-detectApps" aria-live="polite"></div>
+      <div class="quiet">Find a bundle id with: <code>osascript -e 'id of app "Zoom"'</code></div>
+    </fieldset>
+  </section>
+
+  <section><h2>Meeting defaults</h2>
+    <div class="row"><label class="name" for="backend">Claude</label><select id="backend"><option value="auto">Auto (API, then Claude Code)</option><option value="api">API credit</option><option value="cli">Claude Code (subscription)</option></select><span class="msg" id="m-backend" aria-live="polite"></span></div>
+    <div class="row"><label><input type="checkbox" id="keepAudio">Keep the audio after the notes</label><span class="msg" id="m-keepAudio" aria-live="polite"></span></div>
+    <div class="row"><label class="name" for="meetingsDir">Meetings folder</label><input class="grow" id="meetingsDir" placeholder="Default folder" spellcheck="false" autocapitalize="off" aria-describedby="dirNote"></div>
+    <div class="msg" id="m-meetingsDir" aria-live="polite"></div>
+    <div class="quiet" id="dirNote">Leave it empty for the default folder. Takes effect the next time aside starts.</div>
+  </section>
+
+  <section class="hidden" id="appSec"><h2>App</h2>
+    <div class="row"><label><input type="checkbox" id="loginItem">Launch at login</label></div>
+    <div class="err" id="nativeErr"></div>
+    <div class="row"><span class="name">Microphone</span><span class="grow" id="mic">Checking...</span><button data-pane="microphone" aria-label="Open System Settings for the microphone">Open System Settings</button></div>
+    <div class="row"><span class="name">Screen Recording</span><span class="grow" id="screen">Checking...</span><button data-pane="screen" aria-label="Open System Settings for Screen Recording">Open System Settings</button></div>
+  </section>
+  <div class="err" id="err"></div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+// The menu-bar app's message handler. A normal browser has none.
+const bridge = window.webkit?.messageHandlers?.aside;
+const APPS = { 'us.zoom.xos': 'Zoom', 'com.microsoft.teams2': 'Microsoft Teams', 'com.microsoft.teams': 'Microsoft Teams (classic)', 'com.tinyspeck.slackmacgap': 'Slack',
+  'com.cisco.webexmeetingsapp': 'Webex', 'com.apple.FaceTime': 'FaceTime', 'com.google.Chrome': 'Google Chrome', 'company.thebrowser.Browser': 'Arc',
+  'com.apple.Safari': 'Safari', 'com.brave.Browser': 'Brave', 'org.mozilla.firefox': 'Firefox', 'com.microsoft.edgemac': 'Microsoft Edge' };
+const MODS = { ctrl: '⌃', opt: '⌥', shift: '⇧', cmd: '⌘' };
+let prefs = {}, recording = null;
+
+async function api(path, data) {
+  const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data || {}) });
+  const out = await res.json();
+  if (!res.ok) throw new Error(out.error || res.statusText);
+  return out;
+}
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+function showError(e) { $('err').textContent = e.message || String(e); }
+const keyText = (hotkey) => hotkey.split('+').map((p) => MODS[p] || p.toUpperCase()).join('');
+
+function render() {
+  for (const k of ['hotkeyOpen', 'hotkeyAsk']) $('k-' + k).textContent = keyText(prefs[k]);
+  $('detect').checked = prefs.detect; $('appsBox').disabled = !prefs.detect;
+  $('apps').innerHTML = prefs.detectApps.map((id) => `<li><span title="${esc(id)}">${esc(APPS[id] || id)}</span><button data-id="${esc(id)}" aria-label="Remove ${esc(APPS[id] || id)}">Remove</button></li>`).join('');
+  $('backend').value = prefs.backend; $('keepAudio').checked = prefs.keepAudio; $('meetingsDir').value = prefs.meetingsDir;
+}
+const load = async () => { prefs = await (await fetch('/api/prefs')).json(); render(); };
+
+function note(key, text, bad) {
+  const m = $('m-' + key);
+  m.textContent = text; m.classList.toggle('err', !!bad);
+  clearTimeout(m.timer);
+  if (!bad) m.timer = setTimeout(() => { m.textContent = ''; }, 2000);
+}
+// Each change saves at once. render() then shows the saved prefs, so a refused value goes back to the saved one.
+async function save(key, value) {
+  try { prefs = await api('/api/prefs', { [key]: value }); note(key, 'Saved'); } catch (e) { note(key, e.message, true); }
+  render();
+}
+
+function stopRecording() { if (recording) recording.textContent = 'Change'; recording = null; }
+for (const b of document.querySelectorAll('[data-hotkey]')) {
+  b.onclick = () => { stopRecording(); recording = b; b.focus(); b.textContent = 'Type the keys (Esc cancels)'; note(b.dataset.hotkey, ''); };
+  b.onblur = stopRecording;
+}
+// e.code, not e.key: with Option held, e.key is a special character (Option+A gives "å").
+window.addEventListener('keydown', (e) => {
+  if (!recording || ['Meta', 'Control', 'Alt', 'Shift'].includes(e.key)) return;
+  e.preventDefault();
+  const key = recording.dataset.hotkey, k = /^(?:Key([A-Z])|Digit(\d))$/.exec(e.code);
+  if (e.key === 'Escape') return stopRecording();
+  if (!e.metaKey && !e.ctrlKey) return note(key, 'Use Command or Control in the shortcut.', true);
+  if (!k) return note(key, 'Use a letter or a number.', true);
+  stopRecording();
+  save(key, [e.ctrlKey && 'ctrl', e.altKey && 'opt', e.shiftKey && 'shift', e.metaKey && 'cmd', (k[1] || k[2]).toLowerCase()].filter(Boolean).join('+'));
+});
+
+$('detect').onchange = (e) => save('detect', e.target.checked);
+$('apps').onclick = async (e) => {
+  const id = e.target.dataset.id;
+  if (!id) return;
+  await save('detectApps', prefs.detectApps.filter((x) => x !== id));
+  $('addApp').focus(); // the list is drawn again, so the focused Remove button is gone
+};
+$('addForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const id = $('addApp').value.trim();
+  if (!id) return;
+  if (prefs.detectApps.includes(id)) return note('detectApps', 'Already in the list.', true);
+  await save('detectApps', [...prefs.detectApps, id]);
+  if (prefs.detectApps.includes(id)) $('addApp').value = '';
+};
+$('backend').onchange = (e) => save('backend', e.target.value);
+$('keepAudio').onchange = (e) => save('keepAudio', e.target.checked);
+$('meetingsDir').onchange = (e) => save('meetingsDir', e.target.value.trim());
+
+// The app calls this when the page posts "native", and again whenever the state may have changed.
+function asideNative(n) {
+  $('loginItem').checked = n.loginItem;
+  $('nativeErr').textContent = n.error || '';
+  for (const k of ['mic', 'screen']) { $(k).textContent = n[k] === 'granted' ? 'Granted' : 'Not granted'; $(k).className = 'grow ' + (n[k] === 'granted' ? 'ok' : 'err'); }
+}
+if (bridge) {
+  $('appSec').classList.remove('hidden');
+  $('loginItem').onchange = (e) => bridge.postMessage({ type: 'setLoginItem', on: e.target.checked });
+  for (const b of $('appSec').querySelectorAll('[data-pane]')) b.onclick = () => bridge.postMessage({ type: 'openSettings', pane: b.dataset.pane });
+  bridge.postMessage({ type: 'native' });
+}
+
+// Prefs load on every connect, also a reconnect: a change made while the connection was down sends no event.
+const es = new EventSource('/api/events');
+es.onopen = () => load().catch(showError);
+es.onmessage = (e) => { if (JSON.parse(e.data).type === 'prefs') load().catch(showError); };
+</script>
+</body>
+</html>

@@ -249,7 +249,7 @@ export function serve() {
     const url = new URL(req.url, `http://${req.headers.host}`);
     try {
       const page = req.method === 'GET' && PAGES.get(url.pathname);
-      if (page && existsSync(join(ROOT, 'public', page))) {
+      if (page) {
         // No framing: another site's page cannot overlay this one and trick a click on Start.
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'x-frame-options': 'DENY', 'content-security-policy': "frame-ancestors 'none'" });
         return res.end(readFileSync(join(ROOT, 'public', page)));

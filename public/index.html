@@ -191,12 +191,14 @@ async function loadMeetings() {
     const row = document.createElement('div'); row.className = 'row';
     const local = m.claude === 'local';
     row.innerHTML = `<input type="checkbox" value="${esc(m.id)}" style="width:auto" ${local ? 'disabled title="Local only: never sent to Claude"' : ''}><button>${esc(m.title)}, ${new Date(m.startedAt).toISOString().slice(0, 10)}${local ? ', local only' : ''}</button>`;
-    row.querySelector('button').onclick = async () => {
-      const x = await (await fetch('/api/meetings/' + encodeURIComponent(m.id))).json();
-      showMarkdown(x.notes + (x.companion ? '\n## Questions during the call\n\n' + x.companion : ''));
-    };
+    row.querySelector('button').onclick = () => openMeeting(m.id).catch(showError);
     $('meetingList').append(row);
   }
+}
+async function openMeeting(id) {
+  const res = await fetch('/api/meetings/' + encodeURIComponent(id)), x = await res.json();
+  if (!res.ok) throw new Error(x.error || res.statusText);
+  showMarkdown(x.notes + (x.companion ? '\n## Questions during the call\n\n' + x.companion : ''));
 }
 $('crossAsk').onclick = async () => {
   const ids = [...$('meetingList').querySelectorAll('input:checked')].map((i) => i.value);
@@ -219,8 +221,14 @@ $('delete').onclick = async () => {
   poll().catch(showError);
 };
 
-poll().catch(showError);
-loadMeetings().catch(showError);
+// The preferences only preselect; each meeting can still change them.
+fetch('/api/prefs').then((r) => r.json()).then((p) => { $('backend').value = p.backend; $('keepAudio').checked = p.keepAudio; }).catch(showError);
+// A link from the menu-bar app, /#<meeting id>, opens that meeting's notes. It waits for the sections above the
+// notes, so they do not push the notes out of view after the scroll.
+Promise.all([poll().catch(showError), loadMeetings().catch(showError)]).then(async () => {
+  const id = location.hash.slice(1);
+  if (/^[\w-]+$/.test(id)) { await openMeeting(id); $('meetingView').scrollIntoView(); }
+}).catch(showError);
 </script>
 </body>
 </html>
