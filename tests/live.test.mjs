@@ -1,8 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.mjs';
 import { newMeeting } from '../lib/meeting.mjs';
 import { makeTranscriber } from '../lib/live.mjs';
 
@@ -13,7 +12,7 @@ const said = {
   'them-0002.m4a': [{ start: 0.5, end: 2, text: 'We ship on Friday.' }],
 };
 const meeting = () => {
-  const m = newMeeting(mkdtempSync(join(tmpdir(), 'aside-')), { title: 'Release sync', claude: 'allowed', keepAudio: false, backend: 'auto', app: '' });
+  const m = newMeeting(tempDir('aside-'), { title: 'Release sync', claude: 'allowed', keepAudio: false, backend: 'auto', app: '' });
   m.meta.chunks.push({ n: 1, them: 0, me: 0, done: false }, { n: 2, them: 15.25, me: 15.5, done: false });
   return m;
 };

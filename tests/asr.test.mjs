@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, symlinkSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.mjs';
 import { modelDir, modelState, deleteModel, makeAsrManager, startAsr } from '../lib/asr.mjs';
 
 test('modelDir follows the Hugging Face cache rules', () => {
@@ -13,7 +13,7 @@ test('modelDir follows the Hugging Face cache rules', () => {
 });
 
 test('modelState and deleteModel handle the shared blob store', () => {
-  const hub = mkdtempSync(join(tmpdir(), 'aside-hub-'));
+  const hub = tempDir('aside-hub-');
   const md = (n) => join(hub, `models--${n}`);
   const mk = (n) => { mkdirSync(join(md(n), 'blobs'), { recursive: true }); symlinkSync('../../blobs/9a/sha1', join(md(n), 'blobs', 'sha1')); };
   mkdirSync(join(hub, 'blobs/9a'), { recursive: true }); writeFileSync(join(hub, 'blobs/9a/sha1'), Buffer.alloc(3000));

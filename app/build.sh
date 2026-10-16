@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 APP="$HOME/Applications/aside.app"
 ID="aside local signing"
 mkdir -p "$APP/Contents/MacOS" bin
+[ -d node_modules ] || npm install --silent
 [ -x bin/aside-capture ] || npm run -s build:capture
 swiftc -O -swift-version 5 -target arm64-apple-macos14.4 app/main.swift app/Server.swift app/Detect.swift app/Hotkeys.swift app/Windows.swift app/Logic.swift -o "$APP/Contents/MacOS/aside"
 PLIST="$APP/Contents/Info.plist"

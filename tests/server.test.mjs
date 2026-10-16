@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, existsSync, readFileSync, chmodSync } from 'node:fs';
+import { writeFileSync, existsSync, readFileSync, chmodSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.mjs';
 import { allowedOrigin, makeRoutes, startRecorder } from '../server.mjs';
 import { newMeeting, loadMeta } from '../lib/meeting.mjs';
 
@@ -12,7 +12,7 @@ const fakeClaude = () => {
 };
 const asr = { ready: true, transcribe: async (path) => ({ sentences: path.includes('them-') ? [{ start: 0.5, end: 3, text: 'Call me on +91 98765 43210 about the release.' }] : [{ start: 4, end: 5, text: 'Sure, Friday works.' }] }) };
 function setup({ claude = fakeClaude(), emit, modelDownloaded, stop = async () => {} } = {}) {
-  const base = join(mkdtempSync(join(tmpdir(), 'aside-')), 'meetings');
+  const base = join(tempDir('aside-'), 'meetings');
   const rec = {};
   const record = async (dir, app, onChunk) => { Object.assign(rec, { dir, onChunk }); return { stop: async () => { rec.stops = (rec.stops ?? 0) + 1; await stop(); } }; };
   const app = makeRoutes({ base, claude, getAsr: () => asr, record, emit, modelDownloaded, redactions: [/\+?91[\s-]?\d{5}\s?\d{5}/i] });
@@ -87,7 +87,7 @@ test('a question across meetings skips the local-only ones', async () => {
 test('a second Start during the recorder start-up is refused', async () => {
   let release;
   const record = () => new Promise((r) => { release = () => r({ stop: async () => {} }); });
-  const { routes } = makeRoutes({ base: mkdtempSync(join(tmpdir(), 'aside-')), claude: fakeClaude(), getAsr: () => asr, record });
+  const { routes } = makeRoutes({ base: tempDir('aside-'), claude: fakeClaude(), getAsr: () => asr, record });
   const first = routes['POST /api/meeting/start']({ title: 'Release sync', claude: 'allowed' });
   await assert.rejects(routes['POST /api/meeting/start']({ title: 'Legal review', claude: 'local' }), { code: 409 });
   release();
@@ -168,7 +168,7 @@ test('Stop and "Finish it" send a last state event once the notes are written or
 });
 
 test('stop() returns for a recorder that already exited by itself, also after a signal', { timeout: 10000 }, async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'aside-rec-'));
+  const dir = tempDir('aside-rec-');
   for (const [name, script] of [['exits.sh', 'echo recording; sleep 0.3; exit 1'], ['killed.sh', 'echo recording; sleep 0.3; kill -9 $$']]) {
     const bin = join(dir, name);
     writeFileSync(bin, `#!/bin/sh\n${script}\n`);
@@ -224,7 +224,7 @@ test('shutdown during Start waits for the recorder to start, then stops it', asy
   let release;
   let stops = 0;
   const record = () => new Promise((r) => { release = () => r({ stop: async () => { stops++; } }); });
-  const base = join(mkdtempSync(join(tmpdir(), 'aside-')), 'meetings');
+  const base = join(tempDir('aside-'), 'meetings');
   const app = makeRoutes({ base, claude: fakeClaude(), getAsr: () => asr, record });
   const starting = app.routes['POST /api/meeting/start']({ title: 'Release sync', claude: 'local' });
   const shut = app.shutdown();

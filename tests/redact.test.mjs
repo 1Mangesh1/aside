@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.mjs';
 import { redact, loadRedactions } from '../lib/redact.mjs';
 
 test('redact removes every line that matches a pattern and keeps the rest', () => {
@@ -11,7 +11,7 @@ test('redact removes every line that matches a pattern and keeps the rest', () =
 });
 
 test('loadRedactions reads aside.config.json, and no file means no patterns', () => {
-  const root = mkdtempSync(join(tmpdir(), 'aside-cfg-'));
+  const root = tempDir('aside-cfg-');
   assert.deepEqual(loadRedactions(root), []);
   writeFileSync(join(root, 'aside.config.json'), JSON.stringify({ redact: ['\\bCTC\\b'] }));
   const [re] = loadRedactions(root);

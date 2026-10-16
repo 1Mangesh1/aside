@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir, homedir } from 'node:os';
+import { homedir } from 'node:os';
+import { tempDir } from './tmp.mjs';
 import { loadPrefs, savePrefs, meetingsBase, DEFAULTS } from '../lib/prefs.mjs';
 
-const dir = () => mkdtempSync(join(tmpdir(), 'aside-prefs-'));
+const dir = () => tempDir('aside-prefs-');
 
 test('loadPrefs gives the defaults when there is no file', () => {
   assert.deepEqual(loadPrefs(dir()), DEFAULTS);

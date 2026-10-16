@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
+import { writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tempDir } from './tmp.mjs';
 import { newMeeting, saveMeta, loadMeta, pendingChunks, cleanupAudio, adoptChunks, unfinishedMeetings } from '../lib/meeting.mjs';
 
 const settings = (title, keepAudio = false) => ({ title, claude: 'allowed', keepAudio, backend: 'auto', app: 'zoom.us' });
@@ -14,7 +14,7 @@ test('pendingChunks lists the chunks not yet transcribed, oldest first', () => {
 });
 
 test('newMeeting names the folder by date and title, and unfinishedMeetings lists the ones not done', () => {
-  const root = mkdtempSync(join(tmpdir(), 'aside-'));
+  const root = tempDir('aside-');
   const a = newMeeting(root, settings('Sprint planning'), new Date('2026-10-15T09:30:00Z'));
   assert.equal(basename(a.dir), '2026-10-15-09-30-sprint-planning');
   const b = newMeeting(root, settings('Retro'), new Date('2026-10-15T11:00:00Z'));
@@ -24,7 +24,7 @@ test('newMeeting names the folder by date and title, and unfinishedMeetings list
 });
 
 test('a second meeting with the same title in the same minute gets its own folder', () => {
-  const root = mkdtempSync(join(tmpdir(), 'aside-'));
+  const root = tempDir('aside-');
   const at = new Date('2026-10-15T09:30:00Z');
   const first = newMeeting(root, settings('Standup'), at);
   const second = newMeeting(root, { ...settings('Standup'), claude: 'local' }, at);
@@ -33,7 +33,7 @@ test('a second meeting with the same title in the same minute gets its own folde
 });
 
 test('cleanupAudio deletes only transcribed chunks, and keeps failed and unannounced ones', () => {
-  const root = mkdtempSync(join(tmpdir(), 'aside-'));
+  const root = tempDir('aside-');
   const { dir, meta } = newMeeting(root, settings('Design review'), new Date('2026-10-15T09:30:00Z'));
   meta.chunks.push({ n: 1, them: 0, me: 0, done: true }, { n: 2, them: 15, me: 15, done: true, failed: true });
   audio(dir, 'me-0001.m4a', 'them-0001.m4a', 'me-0002.m4a', 'them-0002.m4a', 'me-0003.m4a', 'them-0003.m4a');
@@ -48,7 +48,7 @@ test('cleanupAudio deletes only transcribed chunks, and keeps failed and unannou
 });
 
 test('adoptChunks adds a complete chunk pair that the recorder never announced', () => {
-  const root = mkdtempSync(join(tmpdir(), 'aside-'));
+  const root = tempDir('aside-');
   const { dir, meta } = newMeeting(root, settings('Release sync'), new Date('2026-10-15T09:30:00Z'));
   meta.chunks.push({ n: 1, them: 0, me: 0, done: true });
   audio(dir, 'me-0001.m4a', 'them-0001.m4a', 'me-0002.m4a', 'them-0002.m4a', 'them-0003.m4a');
