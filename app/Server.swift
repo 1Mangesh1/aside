@@ -16,7 +16,7 @@ final class ServerProcess {
   private var restarts: [Date] = []
 
   func start() {
-    guard proc == nil, failed == nil, !checking else { return }
+    guard proc == nil, failed == nil, !checking, !stopping else { return }
     checking = true
     API.get("/api/status") { [self] status in
       if status != nil { checking = false; return appLog("using the server that already runs on port 4318") }

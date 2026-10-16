@@ -227,7 +227,8 @@ export function serve() {
   const app = makeRoutes({ base, claude, getAsr: () => asrMgr.get(), wantAsr, redactions: loadRedactions(ROOT), emit, record: (out, name, onChunk) => startRecorder(recorder, out, name, onChunk) });
   // A restarted speech worker picks up the chunks that waited while it was down.
   setInterval(() => { asrMgr.tick(app.busy()); app.runPending(); }, 5000).unref();
-  process.once('SIGTERM', async () => { await app.shutdown(); process.exit(0); });
+  // A recorder that hangs on stop must not keep node and the port alive after a quit.
+  process.once('SIGTERM', async () => { setTimeout(() => process.exit(1), 10_000).unref(); await app.shutdown(); process.exit(0); });
 
   const status = () => {
     const asr = asrMgr.get(), m = modelState(dir);
