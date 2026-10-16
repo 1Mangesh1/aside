@@ -233,7 +233,7 @@ export function serve() {
     ...app.routes,
     'POST /api/model/download': async () => { if (!asrMgr.get() || asrMgr.get().exited) asrMgr.set(startAsr(join(ROOT, 'asr_worker.py'))); return status(); },
     'POST /api/model/delete': async () => {
-      if (app.current()) throw fail('Stop the recording first.', 409);
+      if (app.current() || app.writing()) throw fail('Wait until the recording is stopped and its notes are written.', 409);
       asrMgr.get()?.kill(); asrMgr.set(null);
       deleteModel(dir);
       return status();
