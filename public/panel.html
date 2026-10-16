@@ -84,7 +84,7 @@ async function poll() {
   $('live').classList.toggle('hidden', !m);
   $('companion').classList.toggle('hidden', m?.claude !== 'allowed');
   $('warn').textContent = $('warn').title = m && S.asrError ? `Speech worker not running (${S.asrError}). The audio is kept; press Finish it later.` : '';
-  $('idle').textContent = S.writing ? 'Writing the notes...' : 'Not recording';
+  $('idle').textContent = S.writing ? 'Writing the notes...' : S.model?.downloaded ? 'Not recording' : 'No speech model yet. Open aside and press Download.';
   idle();
 }
 setInterval(() => { $('clock').textContent = S?.meeting ? clockText((Date.now() - S.meeting.startedAt) / 1000) : ''; }, 500);

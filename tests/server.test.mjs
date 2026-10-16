@@ -11,11 +11,11 @@ const fakeClaude = () => {
   return { calls, status: () => ({}), ask: async (kind, req) => { calls.push(req); req.onText?.('Friday.'); return { text: '## Summary\n\n- The release is on Friday.', cost: 0.01, backend: 'api' }; } };
 };
 const asr = { ready: true, transcribe: async (path) => ({ sentences: path.includes('them-') ? [{ start: 0.5, end: 3, text: 'Call me on +91 98765 43210 about the release.' }] : [{ start: 4, end: 5, text: 'Sure, Friday works.' }] }) };
-function setup({ claude = fakeClaude(), emit } = {}) {
+function setup({ claude = fakeClaude(), emit, modelDownloaded, stop = async () => {} } = {}) {
   const base = join(mkdtempSync(join(tmpdir(), 'aside-')), 'meetings');
   const rec = {};
-  const record = async (dir, app, onChunk) => { Object.assign(rec, { dir, onChunk }); return { stop: async () => { rec.stops = (rec.stops ?? 0) + 1; } }; };
-  const app = makeRoutes({ base, claude, getAsr: () => asr, record, emit, redactions: [/\+?91[\s-]?\d{5}\s?\d{5}/i] });
+  const record = async (dir, app, onChunk) => { Object.assign(rec, { dir, onChunk }); return { stop: async () => { rec.stops = (rec.stops ?? 0) + 1; await stop(); } }; };
+  const app = makeRoutes({ base, claude, getAsr: () => asr, record, emit, modelDownloaded, redactions: [/\+?91[\s-]?\d{5}\s?\d{5}/i] });
   return { base, claude, rec, app, routes: app.routes };
 }
 // A Claude double that holds every answer until open() is called.
@@ -193,4 +193,45 @@ test('shutdown stops the recorder and leaves the meeting for "Finish it", and a 
   await app.shutdown();
   assert.equal(rec.stops, 1);
   assert.match((await routes['POST /api/meetings/finish']({ id })).markdown, /Sure, Friday works\./);
+});
+
+test('a meeting cannot start before the speech model is downloaded', async () => {
+  const { routes, base } = setup({ modelDownloaded: () => false });
+  await assert.rejects(routes['POST /api/meeting/start']({ title: 'Release sync', claude: 'allowed' }), { code: 409, message: 'Download the speech model first: open aside and press Download.' });
+  assert.deepEqual((await routes['GET /api/meetings']()).meetings, []);
+  assert.ok(!existsSync(base), 'no meeting folder');
+});
+
+test('shutdown during Stop waits for the recorder, so stoppedAt is saved', async () => {
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  const { routes, rec, app, base } = setup({ stop: () => gate });
+  const { id } = await routes['POST /api/meeting/start']({ title: 'Release sync', claude: 'allowed' });
+  chunk(rec, 1);
+  const stopping = routes['POST /api/meeting/stop']();
+  let down = false;
+  const shut = app.shutdown().then(() => { down = true; });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(down, false, 'shutdown waits while the recorder stops');
+  release();
+  await shut;
+  assert.ok(loadMeta(join(base, id)).stoppedAt, 'stoppedAt is saved before shutdown returns');
+  assert.equal(rec.stops, 1, 'the recorder is stopped once');
+  await stopping;
+});
+
+test('shutdown during Start waits for the recorder to start, then stops it', async () => {
+  let release;
+  let stops = 0;
+  const record = () => new Promise((r) => { release = () => r({ stop: async () => { stops++; } }); });
+  const base = join(mkdtempSync(join(tmpdir(), 'aside-')), 'meetings');
+  const app = makeRoutes({ base, claude: fakeClaude(), getAsr: () => asr, record });
+  const starting = app.routes['POST /api/meeting/start']({ title: 'Release sync', claude: 'local' });
+  const shut = app.shutdown();
+  release();
+  const { id } = await starting;
+  await shut;
+  assert.equal(stops, 1);
+  assert.equal(app.current(), null);
+  assert.ok(loadMeta(join(base, id)).stoppedAt, 'stoppedAt is saved');
 });

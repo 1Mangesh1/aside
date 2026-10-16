@@ -72,10 +72,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     else if needed && !busy && !prompting { DispatchQueue.main.async { if self.panel.isVisible { self.panel.close() } } }
   }
 
+  // Without the speech model a meeting cannot start, so aside neither asks nor offers Start.
+  private var modelReady: Bool { (status?["model"] as? [String: Any])?["downloaded"] as? Bool == true }
+
   private func handle(_ event: DetectEvent) {
     appLog("detected \(event)")
     switch event {
-    case .callStarted(let id): updatePanel { prompting = true }; panel.prompt(bundleId: id, name: appName(id))
+    case .callStarted(let id): if modelReady { updatePanel { prompting = true }; panel.prompt(bundleId: id, name: appName(id)) }
     case .callGone: updatePanel { prompting = false }
     case .callEnded: panel.ending(seconds: Int(CallDetector.stopDelay - CallDetector.endDelay))
     case .callResumed: panel.ending(seconds: -1)
@@ -128,7 +131,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
       open.keyEquivalent = parts.last!
       open.keyEquivalentModifierMask = parts.dropLast().reduce(into: []) { $0.formUnion(flags[$1] ?? []) }
     }
-    let start = add(menu, "Start meeting", nil, enabled: up && !live)
+    let start = add(menu, "Start meeting", nil, enabled: up && !live && modelReady)
     start.submenu = NSMenu()
     add(start.submenu!, "Local only", #selector(startMeeting(_:))).representedObject = "local"
     add(start.submenu!, "Claude allowed", #selector(startMeeting(_:))).representedObject = "allowed"

@@ -53,10 +53,16 @@ export function startRecorder(bin, out, app, onChunk) {
   });
 }
 
-export function makeRoutes({ base, claude, getAsr, wantAsr = async () => {}, record, redactions = [], emit = () => {} }) {
+export function makeRoutes({ base, claude, getAsr, wantAsr = async () => {}, record, redactions = [], emit = () => {}, modelDownloaded = () => true }) {
   let live = null; // { dir, meta, child, transcriber }
   let starting = false; // a second Start during the recorder's start-up would run two recorders
+  let pending = Promise.resolve(); // the recorder start or stop that runs now, so that shutdown() can wait for it
   const finishing = new Set(); // meeting ids being finished, so a second tab cannot finish one twice
+  const stopRecorder = async (m) => {
+    await m.child.stop();
+    m.meta.stoppedAt = Date.now();
+    saveMeta(m.dir, m.meta);
+  };
   const dirOf = (id) => {
     if (!/^[\w-]+$/.test(id) || !existsSync(join(base, id, 'meeting.json'))) throw fail('Unknown meeting.', 404);
     return join(base, id);
@@ -94,6 +100,7 @@ export function makeRoutes({ base, claude, getAsr, wantAsr = async () => {}, rec
   const routes = {
     'POST /api/meeting/start': async (d) => {
       if (live || starting) throw fail('A meeting is already recording.', 409);
+      if (!modelDownloaded()) throw fail('Download the speech model first: open aside and press Download.', 409);
       if (!['allowed', 'local'].includes(d.claude)) throw fail('Choose "Claude allowed" or "local only" first.', 400);
       wantAsr(); // not awaited: the model loads while the recorder starts, and the first chunks wait for it
       starting = true;
@@ -102,12 +109,14 @@ export function makeRoutes({ base, claude, getAsr, wantAsr = async () => {}, rec
         const id = basename(m.dir);
         m.transcriber = makeTranscriber({ meeting: m, getAsr, onLines: (lines) => emit({ type: 'lines', id, lines }) });
         try {
-          m.child = await record(m.dir, m.meta.app, (n, them, me) => {
+          const started = record(m.dir, m.meta.app, (n, them, me) => {
             if (m.meta.chunks.some((c) => c.n === n)) return; // a repeated SIGINT can announce the last chunk twice
             m.meta.chunks.push({ n, them, me, done: false });
             saveMeta(m.dir, m.meta);
             m.transcriber.run();
           });
+          pending = started.catch(() => {});
+          m.child = await started;
         } catch (e) {
           rmSync(m.dir, { recursive: true, force: true }); // nothing was recorded
           throw e;
@@ -127,9 +136,8 @@ export function makeRoutes({ base, claude, getAsr, wantAsr = async () => {}, rec
       const id = basename(m.dir);
       finishing.add(id);
       try {
-        await m.child.stop();
-        m.meta.stoppedAt = Date.now();
-        saveMeta(m.dir, m.meta);
+        pending = stopRecorder(m);
+        await pending;
         emit({ type: 'state' });
         await wantAsr();
         return await finish(m.dir, m.meta, m.transcriber);
@@ -198,12 +206,11 @@ export function makeRoutes({ base, claude, getAsr, wantAsr = async () => {}, rec
     writing: () => finishing.size > 0,
     // On SIGTERM: the recorder closes its last chunk and the meeting stays unfinished, so "Finish it" writes the notes later.
     shutdown: async () => {
+      await pending.catch(() => {});
       const m = live;
       if (!m) return;
       live = null;
-      await m.child.stop();
-      m.meta.stoppedAt = Date.now();
-      saveMeta(m.dir, m.meta);
+      await stopRecorder(m);
     },
   };
 }
@@ -224,7 +231,7 @@ export function serve() {
   };
   const clients = new Set();
   const emit = (event) => { for (const res of clients) res.write(`data: ${JSON.stringify(event)}\n\n`); };
-  const app = makeRoutes({ base, claude, getAsr: () => asrMgr.get(), wantAsr, redactions: loadRedactions(ROOT), emit, record: (out, name, onChunk) => startRecorder(recorder, out, name, onChunk) });
+  const app = makeRoutes({ base, claude, getAsr: () => asrMgr.get(), wantAsr, redactions: loadRedactions(ROOT), emit, modelDownloaded: () => modelState(dir).downloaded, record: (out, name, onChunk) => startRecorder(recorder, out, name, onChunk) });
   // A restarted speech worker picks up the chunks that waited while it was down.
   setInterval(() => { asrMgr.tick(app.busy()); app.runPending(); }, 5000).unref();
   // A recorder that hangs on stop must not keep node and the port alive after a quit.
