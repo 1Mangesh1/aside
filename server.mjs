@@ -17,6 +17,7 @@ import { loadPrefs, savePrefs, meetingsBase } from './lib/prefs.mjs';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PORT = 4318;
+const PAGES = new Map([['/', 'index.html'], ['/panel', 'panel.html'], ['/prefs', 'prefs.html']]);
 
 // Only the page served from this machine may call the API endpoints: Host blocks DNS rebinding,
 // and Origin blocks another site's page from spending credit or starting a recording through a cross-site POST.
@@ -244,10 +245,11 @@ export function serve() {
     if (!allowedOrigin(req, PORT)) return send(res, 403, { error: 'forbidden' });
     const url = new URL(req.url, `http://${req.headers.host}`);
     try {
-      if (req.method === 'GET' && url.pathname === '/') {
+      const page = req.method === 'GET' && PAGES.get(url.pathname);
+      if (page && existsSync(join(ROOT, 'public', page))) {
         // No framing: another site's page cannot overlay this one and trick a click on Start.
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'x-frame-options': 'DENY', 'content-security-policy': "frame-ancestors 'none'" });
-        return res.end(readFileSync(join(ROOT, 'public/index.html')));
+        return res.end(readFileSync(join(ROOT, 'public', page)));
       }
       if (req.method === 'GET' && url.pathname === '/api/status') return send(res, 200, status());
       if (req.method === 'GET' && url.pathname === '/api/events') {
